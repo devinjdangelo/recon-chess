@@ -37,9 +37,15 @@ class ReconBot(Player):
         self._get_obs()
 
     def handle_opponent_move_result(self, captured_my_piece: bool, capture_square: Optional[Square]):
-        # if the opponent captured our piece, remove it from our board.
-        self.my_piece_captured_square = capture_square
+        
+        if self.color:
+            self.obs[6:11,:,:] = 0
+        else:
+            self.obs[:6,:,:] = 0
         if captured_my_piece:
+            col,row = capture_square//8,capture_square%8
+            self.obs[:11,col,row] = 0
+            self.obs[12,col,row] = 1
             self.board.remove_piece_at(capture_square)
 
     def choose_sense(self, sense_actions: List[Square], move_actions: List[chess.Move], seconds_left: float) -> \
@@ -52,7 +58,8 @@ class ReconBot(Player):
             self.board.set_piece_at(square, piece)
 
     def choose_move(self, move_actions: List[chess.Move], seconds_left: float) -> Optional[chess.Move]:
-        return None
+        action = random.choice(move_actions)
+        return action
 
     def handle_move_result(self, requested_move: Optional[chess.Move], taken_move: Optional[chess.Move],
                            captured_opponent_piece: bool, capture_square: Optional[Square]):
