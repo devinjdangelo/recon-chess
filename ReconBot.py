@@ -32,6 +32,9 @@ class ReconBot(Player):
 
     def _square_to_col_row(square: Square):
         return Square//8,Square%8
+
+    def _piece_idx_at_col_row(col,row):
+        return np.argmax(self.obs[:,col,row])
         
 
     def handle_game_start(self, color: Color, board: chess.Board, opponent_name: str):
@@ -69,9 +72,15 @@ class ReconBot(Player):
 
     def handle_move_result(self, requested_move: Optional[chess.Move], taken_move: Optional[chess.Move],
                            captured_opponent_piece: bool, capture_square: Optional[Square]):
-        # if a move was executed, apply it to our board
         if taken_move is not None:
             self.board.push(taken_move)
+            #update observation, zero old location and set new location to 1
+            col,row = self._square_to_col_row(taken_move.from_square)
+            piece_idx = self._piece_idx_at_col_row(col,row)
+            self.obs[piece_idx,col,row] = 0
+            col,row = self._square_to_col_row(taken_move.to_square)
+            self.obs[piece_idx,col,row] = 1
+
 
     def handle_game_end(self, winner_color: Optional[Color], win_reason: Optional[WinReason],
                         game_history: GameHistory):
