@@ -29,6 +29,9 @@ class ReconBot(Player):
             
     def _get_obs(self):
         self.obs = self._fen_to_obs(self.board.fen())
+
+    def _square_to_col_row(square: Square):
+        return Square//8,Square%8
         
 
     def handle_game_start(self, color: Color, board: chess.Board, opponent_name: str):
@@ -43,7 +46,7 @@ class ReconBot(Player):
         else:
             self.obs[:6,:,:] = 0
         if captured_my_piece:
-            col,row = capture_square//8,capture_square%8
+            col,row = self._square_to_col_row(capture_square)
             self.obs[:11,col,row] = 0
             self.obs[12,col,row] = 1
             self.board.remove_piece_at(capture_square)
@@ -56,6 +59,9 @@ class ReconBot(Player):
         # add the pieces in the sense result to our board
         for square, piece in sense_result:
             self.board.set_piece_at(square, piece)
+            col,row = self._square_to_col_row(capture_square)
+            piece_idx = PieceDict[piece.symbol]
+            self.obs[piece_idx,col,row] = 1
 
     def choose_move(self, move_actions: List[chess.Move], seconds_left: float) -> Optional[chess.Move]:
         action = random.choice(move_actions)
