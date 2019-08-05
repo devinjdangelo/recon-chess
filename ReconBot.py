@@ -31,7 +31,7 @@ class ReconBot(Player):
         self.obs = self._fen_to_obs(self.board.fen())
 
     def _square_to_col_row(square: Square):
-        return Square//8,Square%8
+        return square//8,square%8
 
     def _piece_idx_at_col_row(col,row):
         return np.argmax(self.obs[:,col,row])
@@ -43,11 +43,18 @@ class ReconBot(Player):
         self._get_obs()
 
     def handle_opponent_move_result(self, captured_my_piece: bool, capture_square: Optional[Square]):
-        
+        #when the opponent moves, we no longer have certainty that any previously known pieces
+        #have not moved. Here we remove any piece that could have taken any legal move from the
+        #known game state observation.
+
+        legal_moves = [_square_to_col_row(move.from_square) for move in self.board.legal_moves]
+        legal_col,legal_row = list(zip(*legal_moves))
+
         if self.color:
-            self.obs[6:11,:,:] = 0
+            self.obs[6:11,legal_col,legal_row] = 0
         else:
-            self.obs[:6,:,:] = 0
+            self.obs[:6,legal_col,legal_row] = 0
+            
         if captured_my_piece:
             col,row = self._square_to_col_row(capture_square)
             self.obs[:11,col,row] = 0
