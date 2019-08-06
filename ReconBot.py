@@ -36,8 +36,9 @@ class ReconBot(Player):
         return square//8,square%8
 
     def _piece_idx_at_col_row(self,col,row):
-        if np.max(self.obs[:12,col,row])>0:
-            return np.argmax(self.obs[:,col,row])
+        maxidx = np.argmax(self.obs[:,col,row])
+        if self.obs[maxidx,col,row]>0:
+            return maxidx
         else:
             return None
 
