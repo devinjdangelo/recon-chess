@@ -56,7 +56,7 @@ class ReconBot(Player):
         print(np.flip(printobs,axis=0))
         print(self.board)        
 
-    def _not_my_color(self,sq):
+    def _not_my_color(self,sq: Square):
         piece = self.board.piece_at(sq)
         if self.color and piece is not None:
             return piece.symbol().islower()
@@ -70,12 +70,22 @@ class ReconBot(Player):
         self.color = color
         self._get_obs()
         self._print_obs('game start')
+        
+        if self.color:
+            self.skip_first_opponent_move_call = True
+        else:
+            self.skip_first_opponent_move_call = False
 
     def handle_opponent_move_result(self, captured_my_piece: bool, capture_square: Optional[Square]):
         #when the opponent moves, we no longer have certainty that any previously known pieces
         #have not moved. Here we remove any piece that could have taken any legal move from the
         #known game state observation.
-
+        if self.skip_first_opponent_move_call:
+            #if I am white don't do anything to the first 
+            #null black move (not sure why this is even called then)
+            self.skip_first_opponent_move_call = False
+            return
+        self.board.turn = not self.color
         legal_moves = [move.from_square for move in self.board.pseudo_legal_moves]
         if len(legal_moves) > 0:
             deletes = [self.board.remove_piece_at(sq) for sq in legal_moves if self._not_my_color(sq)] 
@@ -122,6 +132,7 @@ class ReconBot(Player):
 
     def handle_move_result(self, requested_move: Optional[chess.Move], taken_move: Optional[chess.Move],
                            captured_opponent_piece: bool, capture_square: Optional[Square]):
+        print(taken_move)
         if taken_move is not None:
             self.board.push(taken_move)
             #update observation, zero old location and set new location to 1
@@ -130,6 +141,9 @@ class ReconBot(Player):
             self.obs[piece_idx,col,row] = 0
             col,row = self._square_to_col_row(taken_move.to_square)
             self.obs[piece_idx,col,row] = 1
+        else:
+            #pass turn back to other player
+            self.board.push(chess.Move.null())
 
         self._print_obs('handle move result')
 
