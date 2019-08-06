@@ -53,7 +53,17 @@ class ReconBot(Player):
                     key = '.'
                 printobs[col,row] = key
 
-        print(np.flip(printobs,axis=0))        
+        print(np.flip(printobs,axis=0))
+        print(self.board)        
+
+    def _not_my_color(self,sq):
+        piece = self.board.piece_at(sq)
+        if self.color and piece is not None:
+            return piece.symbol().islower()
+        elif piece is not None:
+            return piece.symbol().isupper()
+        else:
+            return None
 
     def handle_game_start(self, color: Color, board: chess.Board, opponent_name: str):
         self.board = board
@@ -66,13 +76,18 @@ class ReconBot(Player):
         #have not moved. Here we remove any piece that could have taken any legal move from the
         #known game state observation.
 
-        #legal_moves = [self._square_to_col_row(move.from_square) for move in self.board.legal_moves]
-        #legal_col,legal_row = list(zip(*legal_moves))
-        #print(legal_col,legal_row)
-        if self.color:
-            self.obs[6:12,:,:] = 0
-        else:
-            self.obs[:6,:,:] = 0
+        legal_moves = [move.from_square for move in self.board.pseudo_legal_moves]
+        if len(legal_moves) > 0:
+            deletes = [self.board.remove_piece_at(sq) for sq in legal_moves if self._not_my_color(sq)] 
+            legal_moves = [self._square_to_col_row(sq) for sq in legal_moves]
+            legal_col,legal_row = list(zip(*legal_moves))
+            #print(legal_col,legal_row)
+            if self.color:
+                #self.obs[6:12,:,:] = 0
+                self.obs[6:12,legal_col,legal_row] = 0
+            else:
+                #self.obs[:6,:,:] = 0
+                self.obs[:6,legal_col,legal_row] = 0
 
         if captured_my_piece:
             col,row = self._square_to_col_row(capture_square)
