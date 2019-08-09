@@ -36,7 +36,7 @@ class ReconBot(Player):
         return square//8,square%8
 
     def _piece_idx_at_col_row(self,col,row):
-        maxidx = np.argmax(self.obs[:,col,row])
+        maxidx = np.argmax(self.obs[:12,col,row])
         if self.obs[maxidx,col,row]>0:
             return maxidx
         else:
@@ -50,6 +50,8 @@ class ReconBot(Player):
                 idx = self._piece_idx_at_col_row(col,row)
                 if idx is not None:
                     key = next(key for key, value in PieceDict.items() if value == idx)
+                elif self.obs[12,col,row]==1:
+                    key = 'X'
                 else:
                     key = '.'
                 printobs[col,row] = key
@@ -135,6 +137,7 @@ class ReconBot(Player):
                            captured_opponent_piece: bool, capture_square: Optional[Square]):
         print(taken_move)
         if taken_move is not None:
+            self.board.turn = self.color
             self.board.push(taken_move)
             #update observation, zero old location and set new location to 1
             col,row = self._square_to_col_row(taken_move.from_square)
