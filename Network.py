@@ -11,7 +11,8 @@ class ReconChessNet(Model):
 	#Implements Tensorflow NN for ReconBot
 	def __init__(self):
 	    super(MyModel, self).__init__()
-	    self.convshape = Reshape((8,8))
+	    self.mask = Masking(mask_value=0)
+	    self.convshape = Reshape((12,8,8))
 	    self.conv1 = Conv2D(16, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TrucatedNormal,data_format='channels_first')
 	    self.conv2 = Conv2D(32, 2, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TrucatedNormal,data_format='channels_first')
 	    self.conv3 = Conv2D(64, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TrucatedNormal,data_format='channels_first')
@@ -32,19 +33,19 @@ class ReconChessNet(Model):
 
 	def get_lstm(self, x):
 		#compute down to the intermediate lstm layer
-		seq_lens = [len(seq) for seq in x]
-		mask = np.zeros((len(seq_lens,max(seq_lens))),dtype=np.bool)
-		for idx,l in enumerate(seq_lens):
-			mask[idx,:l] = 1
-
+		batch_size=len(x)
 		x = pad_sequences(x,padding='post')
+		x = x.reshape((batch_size,-1,12,8,8))
+		time_steps = x.shape[1]
+		x = self.mask(x)
 		x = self.convshape(x)
 	    x = self.conv1(x)
 	    x = self.conv2(x)
 	    x = self.conv3(x)
 	    x = self.conv4(x)
 	    x = self.flatten(x)
-	    x = self.lstm(x,mask=mask)
+	    x = x.reshape(batch_size,time_steps,-1)
+	    x = self.lstm(x)
 	    return x
 
 	def get_pir(self,lstm,mask):
