@@ -79,14 +79,24 @@ class ReconChessNet(Model):
 		pir = self.get_pir(lstm)
 		pis = self.get_pis(lstm)
 		pim = self.get_pim(lstm)
+		critic_state_value = self.get_v(lstm)
 
 		prob_f = lambda t,idx : pir[:,idx] if t_i%2!=0 else pis[:,idx]+pim[:,idx]
 		lg_prob_new = [prob_f(t,i) for t,i in enumerate(a_taken)]
 
-		rt = tf.math.exp(newlgprob - lg_prob_old)
+		rt = tf.math.exp(lg_prob_new - lg_prob_old)
 		pg_losses1 = -GAE * rt
-                pg_losses2 = -GAE * np.clip(rt,1-clip,1+clip)
-                pg_loss = tf.math.reduce_mean(tf.math.maximum(pg_losses1,pg_losses2))
+        pg_losses2 = -GAE * np.clip(rt,1-clip,1+clip)
+        pg_loss = tf.math.reduce_mean(tf.math.maximum(pg_losses1,pg_losses2))
+
+        vpredclipped = old_v_pred + np.clip(np.squeeze(critic_state_value)-old_v_pred,-clip_e,clip_e)
+        vf_losses1 = tf.square(vpred - returns)
+        vf_losses2 = tf.square(vpredclipped - returns)
+
+        #vf_losses1 = tf.Print(vf_losses1,[vpred,self.returns],summarize=20)
+        vf_loss = 0.5 * tf.math.reduce_mean(tf.math.maximum(vf_losses1,vf_losses2))
+
+        entropy = 
 
 
 
