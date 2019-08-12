@@ -58,7 +58,7 @@ class ReconChessNet(Model):
 		#compute recon policy
 		x = self.pir(lstm)
 		x = tf.keras.activations.softmax(x)
-		x = tf.reshape(x,shape=(-1,6,6))
+		#x = tf.reshape(x,shape=(-1,6,6))
 		return x
 
 	def get_pim(self,lstm,mask):
@@ -67,7 +67,7 @@ class ReconChessNet(Model):
 		x = tf.keras.activations.softmax(x)
 		x = x * mask
 		x = x / tf.math.reduce_sum(x,axis=1,keepdims=True)
-		x = tf.reshape(x,shape=(-1,8,8,8,8))
+		#x = tf.reshape(x,shape=(-1,8,8,8,8))
 		return x
 
 	def get_v(self,lstm):
@@ -80,7 +80,7 @@ class ReconChessNet(Model):
 		pim = self.get_pim(lstm,mask)
 		vpred = self.get_v(lstm)
 
-		prob_f = lambda t,idx : tf.math.log(pir[t,idx[0],idx[1]]) if t%2==0 else tf.math.log(pim[t,idx[0],idx[1],idx[2],idx[3]])
+		prob_f = lambda t,idx : tf.math.log(pir[t,idx]) if t%2==0 else tf.math.log(pim[t,idx])
 		lg_prob_new = tf.stack([prob_f(t,i) for t,i in enumerate(a_taken)])
 
 		rt = tf.math.exp(lg_prob_new - lg_prob_old)
@@ -142,7 +142,7 @@ if __name__=="__main__":
 	mask = np.reshape(mask,(2,-1))
 
 	lg_prob_old = np.array([-0.1625,-0.6934],dtype=np.float32) #0.85, 0.5
-	a_taken = [(3,3),(1,1,2,2)]
+	a_taken = [35,1000]
 
 	GAE = np.array([0.5,-0.5],dtype=np.float32)
 	old_v_pred = np.array([0.75,0.7],dtype=np.float32)
