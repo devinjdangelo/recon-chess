@@ -51,13 +51,16 @@ class ReconChessNet(Model):
 	def get_pir(self,lstm,mask):
 		#compute recon policy
 		x = self.pir(lstm)
-		x = x * mask
 		x = tf.keras.activations.softmax(x)
+		x = tf.reshape(x,shape=(-1,6,6))
+		x = x * mask
+		x = x / tf.math.reduce_sum(x)
 		return x
 
 	def get_pim(self,lstm,mask):
 		#compute piece movement policy
 		x = self.pim(lstm)
+		x = tf.keras.activations.relu(x)
 		x = x * mask
 		x = tf.keras.activations.softmax(x)
 		return x
@@ -99,3 +102,8 @@ if __name__=="__main__":
 	net = ReconChessNet()
 
 	lstm = net.get_lstm([agent.obs])
+	mask = np.random.randint(0,high=2,size=(1,6,6),dtype=np.int32)
+	print(mask,mask.shape)
+	pir = net.get_pir(lstm,mask)
+	print(pir)
+	print(np.sum(pir))
