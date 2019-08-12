@@ -36,7 +36,7 @@ class ReconChessNet(Model):
 		x = pad_sequences(x,padding='post')
 		x = x.reshape((batch_size,-1,13,8,8))
 		time_steps = x.shape[1]
-		x = x.astype(np.float32)
+		x = tf.bitcast(x,tf.float32) #any tf op that does this?
 		x = self.mask(x)
 		x = self.convshape(x)
 		x = self.conv1(x)
@@ -60,9 +60,10 @@ class ReconChessNet(Model):
 	def get_pim(self,lstm,mask):
 		#compute piece movement policy
 		x = self.pim(lstm)
-		x = tf.keras.activations.relu(x)
-		x = x * mask
 		x = tf.keras.activations.softmax(x)
+		x = tf.reshape(x,shape=(-1,8,8,8,8))
+		x = x * mask
+		x = x / tf.math.reduce_sum(x)
 		return x
 
 	def get_v(self,lstm):
@@ -73,25 +74,33 @@ class ReconChessNet(Model):
 		lstm = self.get_lstm(inputs)
 		pir = self.get_pir(lstm,masks[0])
 		pim = self.get_pim(lstm,masks[1])
-		critic_state_value = self.get_v(lstm)
+		vpred = self.get_v(lstm)
 
-		prob_f = lambda t,idx : pir[:,idx] if t_i%2!=0 else pis[:,idx]+pim[:,idx]
-		lg_prob_new = [prob_f(t,i) for t,i in enumerate(a_taken)]
+		prob_f = lambda t,idx : tf.math.log(pir[t,idx[0],idx[1]]) if t%2==0 else tf.math.log(pim[t,idx[0],idx[1],idx[2],idx[3]])
+		lg_prob_new = np.array([prob_f(t,i) for t,i in enumerate(a_taken)],dtype=np.float32)
 
 		rt = tf.math.exp(lg_prob_new - lg_prob_old)
 		pg_losses1 = -GAE * rt
-		pg_losses2 = -GAE * np.clip(rt,1-clip,1+clip)
+		pg_losses2 = -GAE * tf.clip_by_value(rt,1-clip,1+clip)
 		pg_loss = tf.math.reduce_mean(tf.math.maximum(pg_losses1,pg_losses2))
 
-		vpredclipped = old_v_pred + np.clip(np.squeeze(critic_state_value)-old_v_pred,-clip_e,clip_e)
+		vpredclipped = old_v_pred + tf.clip_by_value(vpred-old_v_pred,-clip,clip)
 		vf_losses1 = tf.square(vpred - returns)
 		vf_losses2 = tf.square(vpredclipped - returns)
 
-		#vf_losses1 = tf.Print(vf_losses1,[vpred,self.returns],summarize=20)
 		vf_loss = 0.5 * tf.math.reduce_mean(tf.math.maximum(vf_losses1,vf_losses2))
 
-		#entropy = 
+		
+		#want to count p=0 as 0 entropy (certain that it won't be picked)
+		#so set p=0 -> p=1 so ln(p) = 0 and non NaN
+		pir_e = pir + np.logical_not(masks[0]).astype(np.int32)
+		pim_e = pim + np.logical_not(masks[1]).astype(np.int32)
+		e_f = lambda x : -tf.reduce_sum(x*tf.math.log(x))
+		entropy = e_f(pir_e) + e_f(pim_e)
 
+		loss = pg_loss - entropy + vf_loss
+
+		return loss,pg_loss,entropy,vf_loss
 
 
 if __name__=="__main__":
@@ -101,9 +110,22 @@ if __name__=="__main__":
 	agent.obs = agent._fen_to_obs(starting_fen)
 	net = ReconChessNet()
 
-	lstm = net.get_lstm([agent.obs])
-	mask = np.random.randint(0,high=2,size=(1,6,6),dtype=np.int32)
-	print(mask,mask.shape)
-	pir = net.get_pir(lstm,mask)
-	print(pir)
-	print(np.sum(pir))
+	masks = []
+	masks.append(np.random.randint(0,high=2,size=(2,6,6),dtype=np.int32))
+	masks.append(np.random.randint(0,high=2,size=(2,8,8,8,8),dtype=np.int32))
+
+	masks[0][0,3,3] = 1
+	masks[1][0,1,1,2,2] = 1
+
+	lg_prob_old = np.array([-0.1625,-0.6934],dtype=np.float32) #0.85, 0.5
+	a_taken = [(3,3),(1,1,2,2)]
+
+	GAE = np.array([0.5,-0.5],dtype=np.float32)
+	old_v_pred = np.array([0.75,0.7],dtype=np.float32)
+	returns = GAE + old_v_pred
+
+	clip = 0.2
+
+	loss = net.loss([agent.obs,agent.obs],masks,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip)
+	loss = [l.numpy() for l in loss]
+	print(loss)
