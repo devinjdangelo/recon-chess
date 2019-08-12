@@ -2,6 +2,8 @@ import random
 import numpy as np
 from reconchess import *
 
+from Network import ReconChessNet
+
 PieceDict = {'P':0,'N':1,'B':2,'R':3,'Q':4,'K':5,
         'p':6,'n':7,'b':8,'r':9,'q':10,'k':11}
 
@@ -9,6 +11,7 @@ class ReconBot(Player):
     def __init__(self):
         self.board = None
         self.color = None
+        self.net = ReconChessNet()
     
     @staticmethod
     def _fen_to_obs(fen):
@@ -112,7 +115,11 @@ class ReconBot(Player):
 
     def choose_sense(self, sense_actions: List[Square], move_actions: List[chess.Move], seconds_left: float) -> \
             Optional[Square]:
-        return random.choice(sense_actions)
+        action,prob,value = self.net.sample_pir([self.obs])
+        action = 35-action[0]
+        action_to_send = action + 9 + 2*(action%5)
+        print(action,action_to_send)
+        return action_to_send
 
     def handle_sense_result(self, sense_result: List[Tuple[Square, Optional[chess.Piece]]]):
         # add the pieces in the sense result to our board
@@ -125,11 +132,25 @@ class ReconBot(Player):
             else:
                 self.obs[:,col,row] = 0
 
-           
-
         self._print_obs('handle sense')
 
     def choose_move(self, move_actions: List[chess.Move], seconds_left: float) -> Optional[chess.Move]:
+        print(len(move_actions),' total actions')
+        mask = np.zeros((1,8,8,8,8))
+        my_format_moves = []
+        for move in move_actions:
+            col_f,row_f = self._square_to_col_row(move.from_square)
+            col_t,row_t = self._square_to_col_row(move.to_square)
+            my_format_moves.append((col_f,row_f,col_t,row_t))
+            mask[:,col_f,row_f,col_t,row_t] = 1
+        print(np.sum(mask,axis=(1,2)))
+        print(my_format_moves)
+        mask = np.reshape(mask,(1,8*8*8*8))
+
+
+        action,prob,value = self.net.sample_pim([self.obs],mask)
+        print(action)
+        print(move_actions)
         action = random.choice(move_actions)
         return action
 
