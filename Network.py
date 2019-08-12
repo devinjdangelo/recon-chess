@@ -36,7 +36,7 @@ class ReconChessNet(Model):
 		x = pad_sequences(x,padding='post')
 		x = x.reshape((batch_size,-1,13,8,8))
 		time_steps = x.shape[1]
-		x = tf.bitcast(x,tf.float32) #any tf op that does this?
+		x = tf.cast(x,tf.float32) 
 		x = self.mask(x)
 		x = self.convshape(x)
 		x = self.conv1(x)
@@ -77,7 +77,7 @@ class ReconChessNet(Model):
 		vpred = self.get_v(lstm)
 
 		prob_f = lambda t,idx : tf.math.log(pir[t,idx[0],idx[1]]) if t%2==0 else tf.math.log(pim[t,idx[0],idx[1],idx[2],idx[3]])
-		lg_prob_new = np.array([prob_f(t,i) for t,i in enumerate(a_taken)],dtype=np.float32)
+		lg_prob_new = tf.stack([prob_f(t,i) for t,i in enumerate(a_taken)])
 
 		rt = tf.math.exp(lg_prob_new - lg_prob_old)
 		pg_losses1 = -GAE * rt
@@ -92,9 +92,9 @@ class ReconChessNet(Model):
 
 		
 		#want to count p=0 as 0 entropy (certain that it won't be picked)
-		#so set p=0 -> p=1 so ln(p) = 0 and non NaN
-		pir_e = pir + np.logical_not(masks[0]).astype(np.int32)
-		pim_e = pim + np.logical_not(masks[1]).astype(np.int32)
+		#so set p=0 -> p=1 so ln(p) = 0 
+		pir_e = pir + tf.cast(tf.math.logical_not(masks[0]),tf.float32)
+		pim_e = pim + tf.cast(tf.math.logical_not(masks[1]),tf.float32)
 		e_f = lambda x : -tf.reduce_sum(x*tf.math.log(x))
 		entropy = e_f(pir_e) + e_f(pim_e)
 
