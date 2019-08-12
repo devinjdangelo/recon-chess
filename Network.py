@@ -65,24 +65,10 @@ class ReconChessNet(Model):
 		#compute piece movement policy
 		x = self.pim(lstm)
 		x = tf.keras.activations.softmax(x)
-		x = tf.reshape(x,shape=(-1,8,8,8,8))
 		x = x * mask
-		x = x / tf.math.reduce_sum(x)
+		x = x / tf.math.reduce_sum(x,axis=1,keepdims=True)
+		x = tf.reshape(x,shape=(-1,8,8,8,8))
 		return x
-
-	def sample_pir(self,x):
-		#return a recon action given batch of obs
-		lstm = self.get_lstm(x)
-		x = self.get_pir(lstm)
-		x = tf.reshape(x,[-1,36])
-		x = tf.math.log(x)
-		actions = tf.random.categorical(x,1).numpy()[:,0]
-		probs = [x[i,action].numpy() for i,action in enumerate(actions)]
-
-		value = self.get_v(lstm).numpy()[:,0]
-		return actions,probs,value
-
-
 
 	def get_v(self,lstm):
 		x = self.v(lstm)
@@ -111,13 +97,37 @@ class ReconChessNet(Model):
 		
 		#want to count p=0 as 0 entropy (certain that it won't be picked)
 		#so set p=0 -> p=1 so ln(p) = 0 
-		pim_e = pim + tf.cast(tf.math.logical_not(mask),tf.float32)
+		pim_e = tf.reshape(pim,(-1,8*8*8*8)) + tf.cast(tf.math.logical_not(mask),tf.float32)
 		e_f = lambda x : -tf.reduce_sum(x*tf.math.log(x))
 		entropy = e_f(pir) + e_f(pim_e)
 
 		loss = pg_loss - entropy + vf_loss
 
 		return loss,pg_loss,entropy,vf_loss
+
+	def sample_pir(self,x):
+		#return recon actions given batch of obs
+		lstm = self.get_lstm(x)
+		x = self.get_pir(lstm)
+		x = tf.reshape(x,[-1,36])
+		x = tf.math.log(x)
+		actions = tf.random.categorical(x,1).numpy()[:,0]
+		probs = [x[i,action].numpy() for i,action in enumerate(actions)]
+
+		value = self.get_v(lstm).numpy()[:,0]
+		return actions,probs,value
+
+	def sample_pim(self,x,mask):
+		#return move actions given batch of obs
+		lstm = self.get_lstm(x)
+		x = self.get_pim(lstm,mask)
+		x = tf.reshape(x,[-1,8*8*8*8])
+		x = tf.math.log(x)
+		actions = tf.random.categorical(x,1).numpy()[:,0]
+		probs = [x[i,action].numpy() for i,action in enumerate(actions)]
+
+		value = self.get_v(lstm).numpy()[:,0]
+		return actions,probs,value
 
 
 if __name__=="__main__":
@@ -129,6 +139,7 @@ if __name__=="__main__":
 
 	mask = np.random.randint(0,high=2,size=(2,8,8,8,8),dtype=np.int32)
 	mask[0,1,1,2,2] = 1
+	mask = np.reshape(mask,(2,-1))
 
 	lg_prob_old = np.array([-0.1625,-0.6934],dtype=np.float32) #0.85, 0.5
 	a_taken = [(3,3),(1,1,2,2)]
@@ -144,4 +155,11 @@ if __name__=="__main__":
 	print(loss)
 
 	a,p,v = net.sample_pir([agent.obs,agent.obs])
+	print(a,p,v)
+
+	mask = np.zeros((2,8,8,8,8),dtype=np.int32)
+	mask[:,0,0,0,0] = 1
+	mask[:,0,0,0,1] = 1
+	mask = np.reshape(mask,(2,-1))
+	a,p,v = net.sample_pim([agent.obs,agent.obs],mask)
 	print(a,p,v)
