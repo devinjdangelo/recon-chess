@@ -5,14 +5,14 @@ from tensorflow.keras import Model
 from tensorflow.keras.initializers import TruncatedNormal
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import numpy as np
-
+import random
 
 class ReconChessNet(Model):
 	#Implements Tensorflow NN for ReconBot
 	def __init__(self):
 		super(ReconChessNet, self).__init__()
 		self.mask = Masking(mask_value=0)
-		self.convshape = Reshape((13,8,8))
+		#self.convshape = Reshape((13,8,8))
 		#channels first should work on GPU but not cpu for testing
 		self.conv1 = Conv2D(16, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last')
 		self.conv2 = Conv2D(32, 2, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last')
@@ -33,18 +33,24 @@ class ReconChessNet(Model):
 
 		self.v = Dense(1)
 
+		self.optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
+
 	def call(self,x):
 		pass
+
+	def clone(self):
+		#return a clone of self
+		return tf.keras.models.clone_model(self)
 
 	def get_lstm(self, x):
 		#compute down to the intermediate lstm layer
 		batch_size=len(x)
 		x = pad_sequences(x,padding='post')
-		x = x.reshape((batch_size,-1,13,8,8))
+		x = tf.reshape(x,(batch_size,-1,13,8,8))
 		time_steps = x.shape[1]
+		x = tf.reshape(x,shape=(batch_size*time_steps,13,8,8))
 		x = tf.cast(x,tf.float32) 
 		x = self.mask(x)
-		x = self.convshape(x)
 		x = self.conv1(x)
 		x = self.conv2(x)
 		x = self.conv3(x)
@@ -94,7 +100,6 @@ class ReconChessNet(Model):
 
 		vf_loss = 0.5 * tf.math.reduce_mean(tf.math.maximum(vf_losses1,vf_losses2))
 
-		
 		#want to count p=0 as 0 entropy (certain that it won't be picked)
 		#so set p=0 -> p=1 so ln(p) = 0 
 		pim_e = tf.reshape(pim,(-1,8*8*8*8)) + tf.cast(tf.math.logical_not(mask),tf.float32)
@@ -104,6 +109,18 @@ class ReconChessNet(Model):
 		loss = pg_loss - entropy + vf_loss
 
 		return loss,pg_loss,entropy,vf_loss
+
+	def grad(self,inputs,mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip):
+		with tf.GradientTape() as tape:
+			loss,pg_loss,entropy,vf_loss = self.loss(inputs,mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip)
+		return loss,pg_loss,entropy,vf_loss,tape.gradient(loss,self.trainable_variables)
+
+	def update(self,inputs,mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip):
+		loss,pg_loss,entropy,vf_loss,grads = self.grad(inputs,mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip)
+		grads,g_n = tf.clip_by_global_norm(grads,0.5)
+		self.optimizer.apply_gradients(zip(grads,self.trainable_variables))
+
+		return loss,pg_loss,entropy,vf_loss,g_n
 
 	def sample_pir(self,x):
 		#return recon actions given batch of obs
@@ -137,29 +154,21 @@ if __name__=="__main__":
 	agent.obs = agent._fen_to_obs(starting_fen)
 	net = ReconChessNet()
 
-	mask = np.random.randint(0,high=2,size=(2,8,8,8,8),dtype=np.int32)
-	mask[0,1,1,2,2] = 1
-	mask = np.reshape(mask,(2,-1))
+	for i in range(100):
+		mask = np.random.randint(0,high=2,size=(2,8,8,8,8),dtype=np.int32)
+		mask = np.reshape(mask,(2,-1))
 
-	lg_prob_old = np.array([-0.1625,-0.6934],dtype=np.float32) #0.85, 0.5
-	a_taken = [35,1000]
+		lg_prob_old = np.array([-0.1625,-0.6934],dtype=np.float32) #0.85, 0.5
+		a_taken = [random.randint(0,35),random.randint(0,4095)]
+		mask[:,a_taken[1]]=1
 
-	GAE = np.array([0.5,-0.5],dtype=np.float32)
-	old_v_pred = np.array([0.75,0.7],dtype=np.float32)
-	returns = GAE + old_v_pred
+		GAE = np.array([0.5,-0.5],dtype=np.float32)
+		old_v_pred = np.array([0.75,0.7],dtype=np.float32)
+		returns = GAE + old_v_pred
 
-	clip = 0.2
+		clip = 0.2
 
-	loss = net.loss([agent.obs,agent.obs],mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip)
-	loss = [l.numpy() for l in loss]
-	print(loss)
+		loss = net.update([agent.obs,agent.obs],mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip)
+		loss = [l.numpy() for l in loss]
+		print(loss)
 
-	a,p,v = net.sample_pir([agent.obs,agent.obs])
-	print(a,p,v)
-
-	mask = np.zeros((2,8,8,8,8),dtype=np.int32)
-	mask[:,0,0,0,0] = 1
-	mask[:,0,0,0,1] = 1
-	mask = np.reshape(mask,(2,-1))
-	a,p,v = net.sample_pim([agent.obs,agent.obs],mask)
-	print(a,p,v)
