@@ -24,7 +24,7 @@ class ReconChessNet(Model):
 		#could maintain two layers (one for action and one for training)
 		#and copy weights between, or could just not use stateful and
 		#manually keep track of state.
-		#self.lstm = LSTM(256,stateful=True)
+		self.lstm_stateful = LSTM(256,stateful=True)
 		self.lstm = LSTM(256)
 
 		self.pir = Dense(6*6)
@@ -38,11 +38,7 @@ class ReconChessNet(Model):
 	def call(self,x):
 		pass
 
-	def clone(self):
-		#return a clone of self
-		return tf.keras.models.clone_model(self)
-
-	def get_lstm(self, x):
+	def get_lstm(self, x, mode='inference'):
 		#compute down to the intermediate lstm layer
 		batch_size=len(x)
 		x = pad_sequences(x,padding='post')
@@ -57,7 +53,11 @@ class ReconChessNet(Model):
 		x = self.conv4(x)
 		x = self.flatten(x)
 		x = tf.reshape(x,shape=(batch_size,time_steps,-1))
-		x = self.lstm(x)
+		if mode=='inference':
+			x = self.lstm_stateful(x)
+		else:
+			x = self.lstm(x)
+
 		return x
 
 	def get_pir(self,lstm):
@@ -81,10 +81,19 @@ class ReconChessNet(Model):
 		return x
 
 	def loss(self,inputs,mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip):
-		lstm = self.get_lstm(inputs)
+		lstm = self.get_lstm(inputs,mode='train')
 		pir = self.get_pir(lstm)
-		pim = self.get_pim(lstm,mask)
+		mask_padded = pad_sequences(mask,padding='post')
+		pim = self.get_pim(lstm,mask_padded)
 		vpred = self.get_v(lstm)
+
+		lg_prob_old = tf.reshape(pad_sequences(lg_prob_old,padding='post',dtype=np.float32),(-1,))
+		a_taken = tf.reshape(pad_sequences(a_taken,padding='post'),(-1,))
+		GAE = tf.reshape(pad_sequences(GAE,padding='post',dtype=np.float32),(-1,))
+		old_v_pred = tf.reshape(pad_sequences(old_v_pred,padding='post',dtype=np.float32),(-1,))
+		returns = tf.reshape(pad_sequences(returns,padding='post',dtype=np.float32),(-1,))
+
+		GAE = (GAE - tf.math.reduce_mean(GAE)) / (tf.math.reduce_std(GAE)+1e-8)
 
 		prob_f = lambda t,idx : tf.math.log(pir[t,idx]) if t%2==0 else tf.math.log(pim[t,idx])
 		lg_prob_new = tf.stack([prob_f(t,i) for t,i in enumerate(a_taken)])
@@ -154,16 +163,16 @@ if __name__=="__main__":
 	agent.obs = agent._fen_to_obs(starting_fen)
 	net = ReconChessNet()
 
-	for i in range(100):
+	for i in range(1000):
 		mask = np.random.randint(0,high=2,size=(2,8,8,8,8),dtype=np.int32)
 		mask = np.reshape(mask,(2,-1))
 
-		lg_prob_old = np.array([-0.1625,-0.6934],dtype=np.float32) #0.85, 0.5
-		a_taken = [random.randint(0,35),random.randint(0,4095)]
+		lg_prob_old = np.array([[-0.1625],[-0.6934]],dtype=np.float32) #0.85, 0.5
+		a_taken = [[random.randint(0,35)],[random.randint(0,4095)]]
 		mask[:,a_taken[1]]=1
 
-		GAE = np.array([0.5,-0.5],dtype=np.float32)
-		old_v_pred = np.array([0.75,0.7],dtype=np.float32)
+		GAE = np.array([[0.5],[-0.5]],dtype=np.float32)
+		old_v_pred = np.array([[0.75],[0.7]],dtype=np.float32)
 		returns = GAE + old_v_pred
 
 		clip = 0.2
