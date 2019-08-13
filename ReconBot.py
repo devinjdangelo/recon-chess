@@ -119,7 +119,7 @@ class ReconBot(Player):
         action = action[0]
         action_to_send = action + 9 + 2*(action%5)
         print(action,action_to_send,self._square_to_col_row(action_to_send))
-        return action_to_send
+        return int(action_to_send)
 
     def handle_sense_result(self, sense_result: List[Tuple[Square, Optional[chess.Piece]]]):
         # add the pieces in the sense result to our board
