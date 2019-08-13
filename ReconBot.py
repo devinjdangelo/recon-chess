@@ -175,7 +175,8 @@ class ReconBot(Player):
 
     def handle_game_end(self, winner_color: Optional[Color], win_reason: Optional[WinReason],
                         game_history: GameHistory):
-        pass
+
+        self.net.lstm_stateful.reset_states()
 
     def init_net(self):
         #calls the network on dummy data to initialize it and allow for save
@@ -183,12 +184,14 @@ class ReconBot(Player):
         obs = self._fen_to_obs(init_fen)
         mask = np.random.randint(0,high=2,size=(2,8,8,8,8),dtype=np.int32)
         mask = np.reshape(mask,(2,-1))
-        lg_prob_old = np.array([-0.1625,-0.6934],dtype=np.float32) #0.85, 0.5
-        a_taken = [35,1000]
-        GAE = np.array([0.5,-0.5],dtype=np.float32)
-        old_v_pred = np.array([0.75,0.7],dtype=np.float32)
+        lg_prob_old = np.array([[-0.1625],[-0.6934]],dtype=np.float32) #0.85, 0.5
+        a_taken = [[35],[1000]]
+        GAE = np.array([[0.5],[-0.5]],dtype=np.float32)
+        old_v_pred = np.array([[0.75],[0.7]],dtype=np.float32)
         returns = GAE + old_v_pred
 
         clip = 0.2
 
         loss = self.net.loss([obs,obs],mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip)
+
+        out = self.net.sample_pir([obs])
