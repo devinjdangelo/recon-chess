@@ -116,9 +116,9 @@ class ReconBot(Player):
     def choose_sense(self, sense_actions: List[Square], move_actions: List[chess.Move], seconds_left: float) -> \
             Optional[Square]:
         action,prob,value = self.net.sample_pir([self.obs])
-        action = 35-action[0]
+        action = action[0]
         action_to_send = action + 9 + 2*(action%5)
-        print(action,action_to_send)
+        print(action,action_to_send,self._square_to_col_row(action_to_send))
         return action_to_send
 
     def handle_sense_result(self, sense_result: List[Tuple[Square, Optional[chess.Piece]]]):
@@ -137,22 +137,22 @@ class ReconBot(Player):
     def choose_move(self, move_actions: List[chess.Move], seconds_left: float) -> Optional[chess.Move]:
         print(len(move_actions),' total actions')
         mask = np.zeros((1,8,8,8,8))
-        my_format_moves = []
+        col_row_moves = []
         for move in move_actions:
             col_f,row_f = self._square_to_col_row(move.from_square)
             col_t,row_t = self._square_to_col_row(move.to_square)
-            my_format_moves.append((col_f,row_f,col_t,row_t))
+            col_row_moves.append((col_f,row_f,col_t,row_t))
             mask[:,col_f,row_f,col_t,row_t] = 1
-        print(np.sum(mask,axis=(1,2)))
-        print(my_format_moves)
         mask = np.reshape(mask,(1,8*8*8*8))
 
 
         action,prob,value = self.net.sample_pim([self.obs],mask)
+        action = np.unravel_index(action[0],(8,8,8,8))
         print(action)
-        print(move_actions)
-        action = random.choice(move_actions)
-        return action
+        print(col_row_moves)
+        action_idx = col_row_moves.index(action)
+        print(move_actions[action_idx])
+        return move_actions[action_idx]
 
     def handle_move_result(self, requested_move: Optional[chess.Move], taken_move: Optional[chess.Move],
                            captured_opponent_piece: bool, capture_square: Optional[Square]):
