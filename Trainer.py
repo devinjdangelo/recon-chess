@@ -37,7 +37,7 @@ class ReconTrainer:
 		players = [black, white]
 
 		maximum_moves = 50
-		obs_memory = np.zeros(shape=(maximum_moves*2,13,8,8),dtype=np.int32)
+		obs_memory = np.zeros(shape=(maximum_moves*2,13,8,8),dtype=np.float32)
 		mask_memory = np.zeros(shape=(maximum_moves,4096),dtype=np.int32)
 		#action,prob,value
 		action_memory = np.zeros(shape=(maximum_moves*2,3),dtype=np.int32)
@@ -75,8 +75,8 @@ class ReconTrainer:
 		return memory
 
 	def train(self):
-		games = 100
-		game_memory = []
+		games = 2000
+		game_memory = [[],[],[],[]]
 		for game in range(games):
 			print('Now playing game ',game)
 			color = random.choice([True,False])
@@ -85,7 +85,11 @@ class ReconTrainer:
 			else:
 				outmem = self.play_game(self.opponent_agent,self.train_agent)
 
-			game_memory.append(outmem)
+			print(outmem[0].shape[0],' turns')
+			for i,mem in enumerate(game_memory):
+				mem.append(outmem[i])
+
+		print(np.concatenate(game_memory[0]).shape[0],' total turns')
 
 
 if __name__=="__main__":
@@ -94,6 +98,6 @@ if __name__=="__main__":
 	trainer.train()
 	elapsed_time = time.time()-t
 	print('Played 100 games in ',elapsed_time,' seconds')
-	print('That is ',elapsed_time/100,' games per second')
+	print('That is ',100/elapsed_time,' games per second')
 
-	time.sleep(20)
+	time.sleep(60*60*60)
