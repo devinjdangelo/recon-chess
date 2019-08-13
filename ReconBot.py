@@ -8,10 +8,13 @@ PieceDict = {'P':0,'N':1,'B':2,'R':3,'Q':4,'K':5,
         'p':6,'n':7,'b':8,'r':9,'q':10,'k':11}
 
 class ReconBot(Player):
-    def __init__(self):
+    def __init__(self,net=None):
         self.board = None
         self.color = None
-        self.net = ReconChessNet()
+        if net is None:
+            self.net = ReconChessNet()
+        else:
+            self.net = net
     
     @staticmethod
     def _fen_to_obs(fen):
@@ -117,7 +120,7 @@ class ReconBot(Player):
             Optional[Square]:
         action,prob,value = self.net.sample_pir([self.obs])
         action = action[0]
-        action_to_send = action + 9 + 2*(action%5)
+        action_to_send = action + 9 + 2*(action//6)
         print(action,action_to_send,self._square_to_col_row(action_to_send))
         return int(action_to_send)
 
@@ -135,7 +138,6 @@ class ReconBot(Player):
         self._print_obs('handle sense')
 
     def choose_move(self, move_actions: List[chess.Move], seconds_left: float) -> Optional[chess.Move]:
-        print(len(move_actions),' total actions')
         mask = np.zeros((1,8,8,8,8))
         col_row_moves = []
         for move in move_actions:
@@ -144,14 +146,9 @@ class ReconBot(Player):
             col_row_moves.append((col_f,row_f,col_t,row_t))
             mask[:,col_f,row_f,col_t,row_t] = 1
         mask = np.reshape(mask,(1,8*8*8*8))
-
-
         action,prob,value = self.net.sample_pim([self.obs],mask)
         action = np.unravel_index(action[0],(8,8,8,8))
-        print(action)
-        print(col_row_moves)
         action_idx = col_row_moves.index(action)
-        print(move_actions[action_idx])
         return move_actions[action_idx]
 
     def handle_move_result(self, requested_move: Optional[chess.Move], taken_move: Optional[chess.Move],
