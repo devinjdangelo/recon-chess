@@ -72,32 +72,105 @@ class ReconTrainer:
 		memory = [obs_memory,mask_memory,action_memory,rewards]
 		memory = [np.resize(mem,(turn,)+mem.shape[1:]) for mem in memory]
 
-		return memory
+		game.end()
+		winner = game.get_winner_color()
+		win_reason = game.get_win_reason()
+		game_history = game.get_game_history()
 
-	def train(self):
-		games = 2000
+		white.handle_game_end(winner, win_reason, game_history)
+		black.handle_game_end(winner, win_reason, game_history)
+
+		return memory,winner,win_reason
+
+	def collect_exp(self,n_games):
 		game_memory = [[],[],[],[]]
-		for game in range(games):
-			print('Now playing game ',game)
+		for game in range(n_games):
 			color = random.choice([True,False])
 			if color:
-				outmem = self.play_game(self.train_agent,self.opponent_agent)
+				outmem,winner,win_reason = self.play_game(self.train_agent,self.opponent_agent)
 			else:
-				outmem = self.play_game(self.opponent_agent,self.train_agent)
+				outmem,winner,win_reason = self.play_game(self.opponent_agent,self.train_agent)
 
-			print(outmem[0].shape[0],' turns')
-			for i,mem in enumerate(game_memory):
-				mem.append(outmem[i])
+			if winner is None:
+				print('No winner after',outmem[0].shape[0]//2,' moves')
+			elif winner==color:
+				printcolor = 'white' if color else 'black'
+				print('Trainbot wins as ',printcolor,' in',outmem[0].shape[0]//2,' moves')
+			elif winner!=color:
+				printcolor = 'white' if color else 'black'
+				print('Trainbot loses as ',printcolor,' in',outmem[0].shape[0]//2,' moves')
 
-		print(np.concatenate(game_memory[0]).shape[0],' total turns')
+			[mem.append(outmem[i]) for i,mem in enumerate(game_memory)]
+
+		gae = [self.GAE(mem[3][:-1],mem[2][:,-1]) for mem in game_memory]
+		game_memory.append(gae)
+
+		return game_memory
+
+	def train(self,update_n,batch_size,epochs):
+		assert update_n%batch_size==0
+		n_batches = update_n//batch_size
+		while True:
+			mem = self.collect_exp(update_n)
+			samples_available = list(range(update_n))
+			for i in range(n_batches):
+				sample_idx = np.random.choice(samples_available,replace=False,size=batch_size)
+				if len(samples_available)<batch_size:
+					samples_available = list(range(update_n))
+				else:
+					samples_available = [idx for idx in samples_available if idx not in sample_idx]
+
+				batch = [m[sample_idx] for m in mem]
+				self.send_batch(batch)
+
+	def send_batch(self,batch):
+		inputs,mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip
+		inputs = batch[0]
+		mask = batch[1]
+		lg_prob_old = [b[2][:,0] for b in batch]
+		a_taken = [b[2][:,1] for b in batch]
+		old_v_pred = [b[2][:,2] for b in batch]
+		gae = batch[4]
+		returns = [old_v_pred[i]+gae[i] for i in list(range(len(gae)))]
+		clip = 0.2
+
+		loss,pg_loss,entropy,vf_loss,g_n = self.net.update(inputs,mask,lg_prob_old,a_taken,gae,old_v_pred,returns,clip)
+
+
+
+
+	@staticmethod
+	def GAE(rewards,values,g=0.99,l=0.95,bootstrap=True):
+    #rewards: length timesteps-1 list of rewards recieved from environment
+    #values: length timesteps list of state value estimations from net
+    #g: gamma discount factor
+    #l: lambda discount factor
+    #bootstrap: if true, bootstrap estimated return after episode timeout (approximates continuing rather than episodic version of problem)
+    assert(len(rewards)==len(values)-1)
+    tmax = len(rewards)
+    lastadv = 0
+    GAE = [0] * tmax
+    for t in reversed(range(tmax)):
+        if t == tmax - 1 and bootstrap==False:
+            delta = rewards[t] - values[t]
+            GAE[t] = lastadv = delta 
+        else:
+            delta = rewards[t] + g * values[t+1] - values[t]
+            GAE[t] = lastadv = delta + g*l*lastadv
+     
+    return GAE
+
+
+			
+
+
 
 
 if __name__=="__main__":
 	trainer = ReconTrainer()
 	t = time.time()
-	trainer.train()
+	trainer.collect_exp(10)
 	elapsed_time = time.time()-t
 	print('Played 100 games in ',elapsed_time,' seconds')
 	print('That is ',100/elapsed_time,' games per second')
 
-	time.sleep(60*60*60)
