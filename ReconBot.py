@@ -8,7 +8,7 @@ PieceDict = {'P':0,'N':1,'B':2,'R':3,'Q':4,'K':5,
         'p':6,'n':7,'b':8,'r':9,'q':10,'k':11}
 
 class ReconBot(Player):
-    def __init__(self,net=None):
+    def __init__(self,net=None,verbose=True):
         self.board = None
         self.color = None
         if net is None:
@@ -16,6 +16,8 @@ class ReconBot(Player):
         else:
             self.net = net
     
+        self.verbose = verbose
+
     @staticmethod
     def _fen_to_obs(fen):
         obs = np.zeros(shape=(13,8,8),dtype=np.int32)
@@ -49,6 +51,8 @@ class ReconBot(Player):
             return None
 
     def _print_obs(self,phase):
+        if not self.verbose:
+            return
         print('\n'+phase)
         printobs = np.zeros(shape=(8,8),dtype=object)
         for col in range(8):
@@ -121,7 +125,7 @@ class ReconBot(Player):
         action,prob,value = self.net.sample_pir([self.obs])
         action = action[0]
         action_to_send = action + 9 + 2*(action//6)
-        print(action,action_to_send,self._square_to_col_row(action_to_send))
+        self.action_memory = action,prob[0],value[0]
         return int(action_to_send)
 
     def handle_sense_result(self, sense_result: List[Tuple[Square, Optional[chess.Piece]]]):
@@ -138,22 +142,22 @@ class ReconBot(Player):
         self._print_obs('handle sense')
 
     def choose_move(self, move_actions: List[chess.Move], seconds_left: float) -> Optional[chess.Move]:
-        mask = np.zeros((1,8,8,8,8))
+        self.mask = np.zeros((1,8,8,8,8))
         col_row_moves = []
         for move in move_actions:
             col_f,row_f = self._square_to_col_row(move.from_square)
             col_t,row_t = self._square_to_col_row(move.to_square)
             col_row_moves.append((col_f,row_f,col_t,row_t))
-            mask[:,col_f,row_f,col_t,row_t] = 1
-        mask = np.reshape(mask,(1,8*8*8*8))
-        action,prob,value = self.net.sample_pim([self.obs],mask)
+            self.mask[:,col_f,row_f,col_t,row_t] = 1
+        self.mask = np.reshape(self.mask,(1,8*8*8*8))
+        action,prob,value = self.net.sample_pim([self.obs],self.mask)
+        self.action_memory = action[0],prob[0],value[0]
         action = np.unravel_index(action[0],(8,8,8,8))
         action_idx = col_row_moves.index(action)
         return move_actions[action_idx]
 
     def handle_move_result(self, requested_move: Optional[chess.Move], taken_move: Optional[chess.Move],
                            captured_opponent_piece: bool, capture_square: Optional[Square]):
-        print(taken_move)
         if taken_move is not None:
             self.board.turn = self.color
             self.board.push(taken_move)
@@ -172,3 +176,19 @@ class ReconBot(Player):
     def handle_game_end(self, winner_color: Optional[Color], win_reason: Optional[WinReason],
                         game_history: GameHistory):
         pass
+
+    def init_net(self):
+        #calls the network on dummy data to initialize it and allow for save
+        init_fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+        obs = self._fen_to_obs(init_fen)
+        mask = np.random.randint(0,high=2,size=(2,8,8,8,8),dtype=np.int32)
+        mask = np.reshape(mask,(2,-1))
+        lg_prob_old = np.array([-0.1625,-0.6934],dtype=np.float32) #0.85, 0.5
+        a_taken = [35,1000]
+        GAE = np.array([0.5,-0.5],dtype=np.float32)
+        old_v_pred = np.array([0.75,0.7],dtype=np.float32)
+        returns = GAE + old_v_pred
+
+        clip = 0.2
+
+        loss = self.net.loss([obs,obs],mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip)
