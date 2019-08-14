@@ -11,14 +11,15 @@ class ReconTrainer:
     # implements training procedures for ReconBot
     # by interfacing with reconchess api
     def __init__(self):
-        self.train_net = ReconChessNet()
+        self.train_net = ReconChessNet('train')
         self.train_agent = ReconBot(net=self.train_net,verbose=False)
         self.train_agent.init_net()
 
-        self.opponent_net = ReconChessNet()
+        self.opponent_net = ReconChessNet('opponent')
         self.opponent_agent = ReconBot(net=self.opponent_net,verbose=False)
         self.opponent_agent.init_net()
 
+        self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
         self.opponent_net.set_weights(self.train_net.get_weights())
 
     def play_game(self,white,black):
@@ -143,6 +144,7 @@ class ReconTrainer:
 
         return self.train_net.update(inputs,mask,lg_prob_old,a_taken,gae,old_v_pred,returns,clip)
 
+
     @staticmethod
     def GAE(rewards,values,g=0.99,l=0.95,bootstrap=True):
     #rewards: length timesteps list of rewards recieved from environment
@@ -173,4 +175,4 @@ class ReconTrainer:
 
 if __name__=="__main__":
     trainer = ReconTrainer()
-    trainer.train(4,2,1)
+    trainer.train(3,3,1)

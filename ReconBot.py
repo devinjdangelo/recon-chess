@@ -112,6 +112,7 @@ class ReconBot(Player):
                 #self.obs[:6,:,:] = 0
                 self.obs[:6,legal_col,legal_row] = 0
 
+        self.obs[12,:,:] = 0
         if captured_my_piece:
             col,row = self._square_to_col_row(capture_square)
             self.obs[:12,col,row] = 0
@@ -178,12 +179,14 @@ class ReconBot(Player):
 
         self.net.lstm_stateful.reset_states()
 
+
     def init_net(self):
         #calls the network on dummy data to initialize it and allow for save
         init_fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
         obs = self._fen_to_obs(init_fen)
-        mask = np.random.randint(0,high=2,size=(2,8,8,8,8),dtype=np.int32)
-        mask = np.reshape(mask,(2,-1))
+        mask = np.random.randint(0,high=2,size=(1,4096),dtype=np.int32)
+        mask2 = np.random.randint(0,high=2,size=(1,4096),dtype=np.int32)
+        mask = [mask,mask2]
         lg_prob_old = np.array([[-0.1625],[-0.6934]],dtype=np.float32) #0.85, 0.5
         a_taken = [[35],[1000]]
         GAE = np.array([[0.5],[-0.5]],dtype=np.float32)
@@ -195,3 +198,5 @@ class ReconBot(Player):
         loss = self.net.loss([obs,obs],mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip)
 
         out = self.net.sample_pir([obs])
+
+        self.net.lstm_stateful.reset_states()

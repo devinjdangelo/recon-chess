@@ -9,7 +9,9 @@ import random
 
 class ReconChessNet(Model):
 	#Implements Tensorflow NN for ReconBot
-	def __init__(self):
+	def __init__(self,name):
+		self.netname = name
+
 		super(ReconChessNet, self).__init__()
 		self.mask = Masking(mask_value=0)
 		#self.convshape = Reshape((13,8,8))
@@ -24,8 +26,8 @@ class ReconChessNet(Model):
 		#could maintain two layers (one for action and one for training)
 		#and copy weights between, or could just not use stateful and
 		#manually keep track of state.
-		self.lstm_stateful = LSTM(256,stateful=True)
-		self.lstm = LSTM(256)
+		self.lstm_stateful = LSTM(256,stateful=True,name='stateful_lstm',trainable=False)
+		self.lstm = LSTM(256,return_sequences=True,name='training_lstm')
 
 		self.pir = Dense(6*6)
 
@@ -38,13 +40,15 @@ class ReconChessNet(Model):
 	def call(self,x):
 		pass
 
-	def get_lstm(self, x, mode='inference'):
-		#compute down to the intermediate lstm layer
+	def get_lstm(self, x, inference=True):
+
 		batch_size=len(x)
 		x = pad_sequences(x,padding='post')
+
 		x = tf.reshape(x,(batch_size,-1,13,8,8))
 		time_steps = x.shape[1]
 		x = tf.reshape(x,shape=(batch_size*time_steps,13,8,8))
+		#print(tf.reduce_mean(x,axis=[1,2,3],keepdims=True).numpy())
 		x = tf.cast(x,tf.float32) 
 		x = self.mask(x)
 		x = self.conv1(x)
@@ -53,7 +57,7 @@ class ReconChessNet(Model):
 		x = self.conv4(x)
 		x = self.flatten(x)
 		x = tf.reshape(x,shape=(batch_size,time_steps,-1))
-		if mode=='inference':
+		if inference:
 			x = self.lstm_stateful(x)
 		else:
 			x = self.lstm(x)
@@ -64,6 +68,7 @@ class ReconChessNet(Model):
 		#compute recon policy
 		x = self.pir(lstm)
 		x = tf.keras.activations.softmax(x)
+		x = tf.reshape(x,(-1,36))
 		#x = tf.reshape(x,shape=(-1,6,6))
 		return x
 
@@ -72,7 +77,16 @@ class ReconChessNet(Model):
 		x = self.pim(lstm)
 		x = tf.keras.activations.softmax(x)
 		x = x * mask
-		x = x / tf.math.reduce_sum(x,axis=1,keepdims=True)
+		if self.netname=='train':
+			print(mask.shape)
+			#print(tf.reduce_sum(mask,axis=1,keepdims=True).numpy())
+		x = tf.reshape(x,(-1,4096))
+		scale = tf.math.reduce_sum(x,axis=1,keepdims=True)
+		#if self.netname=='train':
+			#print(scale.numpy())
+		#don't rescale masked time steps, otherwise div by 0
+		scale = tf.where(scale>0,scale,tf.ones_like(scale))
+		x = x / scale
 		#x = tf.reshape(x,shape=(-1,8,8,8,8))
 		return x
 
@@ -81,9 +95,12 @@ class ReconChessNet(Model):
 		return x
 
 	def loss(self,inputs,mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip):
-		lstm = self.get_lstm(inputs,mode='train')
+		lstm = self.get_lstm(inputs,inference=False)
+		lstm = tf.reshape(lstm,(-1,256))
 		pir = self.get_pir(lstm)
 		mask_padded = pad_sequences(mask,padding='post')
+		print(len(mask),[m.shape for m in mask],mask_padded.shape)
+		mask_padded = tf.cast(tf.reshape(mask_padded,(-1,4096)),tf.float32)
 		pim = self.get_pim(lstm,mask_padded)
 		vpred = self.get_v(lstm)
 
@@ -111,7 +128,9 @@ class ReconChessNet(Model):
 
 		#want to count p=0 as 0 entropy (certain that it won't be picked)
 		#so set p=0 -> p=1 so ln(p) = 0 
-		pim_e = tf.reshape(pim,(-1,8*8*8*8)) + tf.cast(tf.math.logical_not(mask),tf.float32)
+		
+		mask_padded = tf.cast(mask_padded,dtype=tf.bool)
+		pim_e = pim + tf.cast(tf.math.logical_not(mask_padded),tf.float32)
 		e_f = lambda x : -tf.reduce_sum(x*tf.math.log(x))
 		entropy = e_f(pir) + e_f(pim_e)
 
@@ -129,7 +148,7 @@ class ReconChessNet(Model):
 		grads,g_n = tf.clip_by_global_norm(grads,0.5)
 		self.optimizer.apply_gradients(zip(grads,self.trainable_variables))
 
-		return loss,pg_loss,entropy,vf_loss,g_n
+		return loss.numpy(),loss.numpy(),loss.numpy(),loss.numpy(),loss.numpy()
 
 	def sample_pir(self,x):
 		#return recon actions given batch of obs
@@ -154,6 +173,7 @@ class ReconChessNet(Model):
 
 		value = self.get_v(lstm).numpy()[:,0]
 		return actions,probs,value
+
 
 
 if __name__=="__main__":
