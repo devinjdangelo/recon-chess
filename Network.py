@@ -77,8 +77,8 @@ class ReconChessNet(Model):
 		x = self.pim(lstm)
 		x = tf.keras.activations.softmax(x)
 		x = x * mask
-		if self.netname=='train':
-			print(mask.shape)
+		#if self.netname=='train':
+			#print(mask.shape)
 			#print(tf.reduce_sum(mask,axis=1,keepdims=True).numpy())
 		x = tf.reshape(x,(-1,4096))
 		scale = tf.math.reduce_sum(x,axis=1,keepdims=True)
@@ -95,25 +95,58 @@ class ReconChessNet(Model):
 		return x
 
 	def loss(self,inputs,mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip):
-		lstm = self.get_lstm(inputs,inference=False)
-		lstm = tf.reshape(lstm,(-1,256))
-		pir = self.get_pir(lstm)
-		mask_padded = pad_sequences(mask,padding='post')
-		print(len(mask),[m.shape for m in mask],mask_padded.shape)
-		mask_padded = tf.cast(tf.reshape(mask_padded,(-1,4096)),tf.float32)
-		pim = self.get_pim(lstm,mask_padded)
-		vpred = self.get_v(lstm)
 
 		lg_prob_old = tf.reshape(pad_sequences(lg_prob_old,padding='post',dtype=np.float32),(-1,))
 		a_taken = tf.reshape(pad_sequences(a_taken,padding='post'),(-1,))
 		GAE = tf.reshape(pad_sequences(GAE,padding='post',dtype=np.float32),(-1,))
 		old_v_pred = tf.reshape(pad_sequences(old_v_pred,padding='post',dtype=np.float32),(-1,))
 		returns = tf.reshape(pad_sequences(returns,padding='post',dtype=np.float32),(-1,))
+		mask_padded = pad_sequences(mask,padding='post')
+		mask_padded = tf.cast(tf.reshape(mask_padded,(-1,4096)),tf.float32)
+
+		lstm = self.get_lstm(inputs,inference=False)
+		print('lstmpre ',lstm.shape)
+
+		#every other starting from first
+		lstm_pir = lstm[:,::2,:]
+		#every other starting from second
+		lstm_pim = lstm[:,1::2,:]
+		
+		lstm_pir = tf.reshape(lstm_pir,(-1,256))
+		lstm_pim = tf.reshape(lstm_pim,(-1,256))
+		lstm = tf.reshape(lstm,(-1,256))
+
+		print('lstmpost ',lstm.shape)
+		print(len(mask),[m.shape for m in mask],mask_padded.shape)
+		
+
+		pir = self.get_pir(lstm_pir)
+		pim = self.get_pim(lstm_pim,mask_padded)
+
+		a_taken_pir = a_taken[::2]
+		a_taken_pim = a_taken[1::2]
+
+		pir_taken = tf.stack([pir[i,j] for i,j in enumerate(a_taken_pir)])
+		pim_taken = tf.stack([pim[i,j] for i,j in enumerate(a_taken_pim)])
+
+		print('pim probs',pim_taken.numpy())
+
+		print('aftergather ',pir_taken.shape,pim_taken.shape)
+
+		pir_taken = tf.expand_dims(pir_taken,-1)
+		pim_taken = tf.expand_dims(pim_taken,-1)
+		print('preconcat ',pir_taken.shape,pim_taken.shape)
+		lg_prob_new = tf.concat([pir_taken,pim_taken],-1)
+		print('concatted ',lg_prob_new.shape)
+		lg_prob_new = tf.reshape(lg_prob_new,(-1,))
+		print('reshaped ',lg_prob_new.shape)
+		lg_prob_new = tf.math.log(lg_prob_new)
+		vpred = self.get_v(lstm)
 
 		GAE = (GAE - tf.math.reduce_mean(GAE)) / (tf.math.reduce_std(GAE)+1e-8)
 
-		prob_f = lambda t,idx : tf.math.log(pir[t,idx]) if t%2==0 else tf.math.log(pim[t,idx])
-		lg_prob_new = tf.stack([prob_f(t,i) for t,i in enumerate(a_taken)])
+		print(lg_prob_new.numpy())
+		print(lg_prob_old.numpy())
 
 		rt = tf.math.exp(lg_prob_new - lg_prob_old)
 		pg_losses1 = -GAE * rt
@@ -174,30 +207,4 @@ class ReconChessNet(Model):
 		value = self.get_v(lstm).numpy()[:,0]
 		return actions,probs,value
 
-
-
-if __name__=="__main__":
-	from ReconBot import ReconBot
-	agent = ReconBot()
-	starting_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-	agent.obs = agent._fen_to_obs(starting_fen)
-	net = ReconChessNet()
-
-	for i in range(1000):
-		mask = np.random.randint(0,high=2,size=(2,8,8,8,8),dtype=np.int32)
-		mask = np.reshape(mask,(2,-1))
-
-		lg_prob_old = np.array([[-0.1625],[-0.6934]],dtype=np.float32) #0.85, 0.5
-		a_taken = [[random.randint(0,35)],[random.randint(0,4095)]]
-		mask[:,a_taken[1]]=1
-
-		GAE = np.array([[0.5],[-0.5]],dtype=np.float32)
-		old_v_pred = np.array([[0.75],[0.7]],dtype=np.float32)
-		returns = GAE + old_v_pred
-
-		clip = 0.2
-
-		loss = net.update([agent.obs,agent.obs],mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip)
-		loss = [l.numpy() for l in loss]
-		print(loss)
 

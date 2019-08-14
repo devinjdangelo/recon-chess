@@ -57,7 +57,7 @@ class ReconTrainer:
                 obs_memory[turn,:,:,:] = np.copy(self.train_agent.obs)
                 play_sense(game, player, sense_actions, move_actions)
                 action_memory[turn,:] = np.copy(self.train_agent.action_memory)
-                rewards[turn] = 0
+                rewards[turn] = random.random()
                 turn += 1
             else:
                 play_sense(game, player, sense_actions, move_actions)
@@ -67,14 +67,11 @@ class ReconTrainer:
                 play_move(game, player, move_actions)
                 mask_memory[turn//2,:] = np.copy(self.train_agent.mask)[0,:]
                 action_memory[turn,:] = np.copy(self.train_agent.action_memory)
-                rewards[turn] = 0
+                rewards[turn] = random.random()
                 turn += 1
             else:
                 play_move(game, player, move_actions)
 
-        memory = [obs_memory,mask_memory,action_memory,rewards]
-        newsize = [turn,turn//2,turn,turn]
-        memory = [np.resize(mem,(newsize[i],)+mem.shape[1:]) for i,mem in enumerate(memory)]
 
         game.end()
         winner = game.get_winner_color()
@@ -83,6 +80,11 @@ class ReconTrainer:
 
         white.handle_game_end(winner, win_reason, game_history)
         black.handle_game_end(winner, win_reason, game_history)
+
+
+        memory = [obs_memory,mask_memory,action_memory,rewards]
+        newsize = [turn,turn//2,turn,turn]
+        memory = [np.resize(mem,(newsize[i],)+mem.shape[1:]) for i,mem in enumerate(memory)]
 
         return memory,winner,win_reason
 
@@ -165,7 +167,7 @@ class ReconTrainer:
                 GAE[t] = lastadv = delta + g*l*lastadv
          
         #need to fix
-        GAE[-1] = 0
+        GAE[-1] = rewards[-1]
         return GAE
 
 

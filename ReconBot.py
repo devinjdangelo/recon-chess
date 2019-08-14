@@ -187,15 +187,15 @@ class ReconBot(Player):
         mask = np.random.randint(0,high=2,size=(1,4096),dtype=np.int32)
         mask2 = np.random.randint(0,high=2,size=(1,4096),dtype=np.int32)
         mask = [mask,mask2]
-        lg_prob_old = np.array([[-0.1625],[-0.6934]],dtype=np.float32) #0.85, 0.5
-        a_taken = [[35],[1000]]
-        GAE = np.array([[0.5],[-0.5]],dtype=np.float32)
-        old_v_pred = np.array([[0.75],[0.7]],dtype=np.float32)
+        lg_prob_old = np.array([[-0.1625,-0.1625],[-0.6934,-0.6934]],dtype=np.float32) #0.85, 0.5
+        a_taken = [[35,1000],[35,1000]]
+        GAE = np.array([[0.5,0.5],[-0.5,-0.5]],dtype=np.float32)
+        old_v_pred = np.array([[0.75,0.75],[0.7,0.7]],dtype=np.float32)
         returns = GAE + old_v_pred
 
         clip = 0.2
 
-        loss = self.net.loss([obs,obs],mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip)
+        loss = self.net.loss([[obs,obs],[obs,obs]],mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip)
 
         out = self.net.sample_pir([obs])
 
