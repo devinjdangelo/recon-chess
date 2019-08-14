@@ -73,7 +73,8 @@ class ReconTrainer:
                 play_move(game, player, move_actions)
 
         memory = [obs_memory,mask_memory,action_memory,rewards]
-        memory = [np.resize(mem,(turn,)+mem.shape[1:]) for mem in memory]
+        newsize = [turn,turn//2,turn,turn]
+        memory = [np.resize(mem,(newsize[i],)+mem.shape[1:]) for i,mem in enumerate(memory)]
 
         game.end()
         winner = game.get_winner_color()
