@@ -58,7 +58,7 @@ class ReconTrainer:
                 obs_memory[turn,:,:,:] = np.copy(self.train_agent.obs)
                 play_sense(game, player, sense_actions, move_actions)
                 action_memory[turn,:] = np.copy(self.train_agent.action_memory)
-                rewards[turn] = random.random()
+                rewards[turn] = 0
                 turn += 1
             else:
                 play_sense(game, player, sense_actions, move_actions)
@@ -68,7 +68,7 @@ class ReconTrainer:
                 play_move(game, player, move_actions)
                 mask_memory[turn//2,:] = np.copy(self.train_agent.mask)[0,:]
                 action_memory[turn,:] = np.copy(self.train_agent.action_memory)
-                rewards[turn] = random.random()
+                rewards[turn] = 0
                 turn += 1
             else:
                 play_move(game, player, move_actions)
@@ -89,7 +89,7 @@ class ReconTrainer:
 
         return memory,winner,win_reason
 
-    def collect_exp(self,n_games):
+    def collect_exp(self,n_games,loop,score):
         game_memory = [[],[],[],[],[]]
         for game in range(n_games):
             color = random.choice([True,False])
@@ -99,13 +99,18 @@ class ReconTrainer:
                 outmem,winner,win_reason = self.play_game(self.opponent_agent,self.train_agent)
 
             if winner is None:
-                print('No winner after',outmem[0].shape[0]//2,' moves')
+                score = 0.995*score
+                print('loop ',loop,' Game ',game,' No winner after',outmem[0].shape[0]//2,' moves',' current score: ','{:.5f}'.format(score))
             elif winner==color:
                 printcolor = 'white' if color else 'black'
-                print('Trainbot wins as ',printcolor,' in',outmem[0].shape[0]//2,' moves by ',win_reason)
+                outmem[3][-1] += 1
+                score = 0.995*score + 0.005*1
+                print('loop ',loop,' Game ',game,' Trainbot wins as ',printcolor,' in',outmem[0].shape[0]//2,' moves by ',win_reason,' current score: ','{:.5f}'.format(score))
             elif winner!=color:
                 printcolor = 'white' if color else 'black'
-                print('Trainbot loses as ',printcolor,' in',outmem[0].shape[0]//2,' moves by ',win_reason)
+                outmem[3][-1] -= 1
+                score = 0.995*score + 0.005*(-1)
+                print('loop ',loop,' Game ',game,' Trainbot loses as ',printcolor,' in',outmem[0].shape[0]//2,' moves by ',win_reason,' current score: ','{:.5f}'.format(score))
 
             outmem.append(self.GAE(outmem[3],outmem[2][:,-1]))
             [mem.append(outmem[i]) for i,mem in enumerate(game_memory)]
@@ -117,8 +122,9 @@ class ReconTrainer:
         assert update_n%batch_size==0
         n_batches = update_n//batch_size
         loop = 1
+        score = 0
         while True:
-            mem = self.collect_exp(update_n)
+            mem = self.collect_exp(update_n,loop,score)
             samples_available = list(range(update_n))
             for i in range(n_batches):
                 sample_idx = np.random.choice(samples_available,replace=False,size=batch_size)
@@ -131,8 +137,8 @@ class ReconTrainer:
                 print('Loss: ',loss,' Policy Loss: ',pg_loss,' Entropy: ',entropy,' Value Loss: ',vf_loss,' Grad Norm: ',g_n)
 
             self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
-            if loop%5==0:
-                self.opponent_net.set_weights(self.train_net.get_weights)
+            #if loop%5==0:
+                #self.opponent_net.set_weights(self.train_net.get_weights)
 
 
 
@@ -156,15 +162,15 @@ class ReconTrainer:
 
 
     @staticmethod
-    def GAE(rewards,values,g=0.99,l=0.95,bootstrap=True):
+    def GAE(rewards,values,g=0.99,l=0.95,bootstrap=False):
     #rewards: length timesteps list of rewards recieved from environment
-    #values: length timesteps list of state value estimations from net
+    #values: length timesteps list (timesteps +1 if bootstrap) of state values
     #g: gamma discount factor
     #l: lambda discount factor
     #bootstrap: if true, bootstrap estimated return after episode timeout (approximates continuing rather than episodic version of problem)
-        tmax = len(rewards)-1
+        tmax = len(rewards)
         lastadv = 0
-        GAE = [0] * (tmax+1)
+        GAE = [0] * (tmax)
         for t in reversed(range(tmax)):
             if t == tmax - 1 and bootstrap==False:
                 delta = rewards[t] - values[t]
@@ -173,8 +179,6 @@ class ReconTrainer:
                 delta = rewards[t] + g * values[t+1] - values[t]
                 GAE[t] = lastadv = delta + g*l*lastadv
          
-        #need to fix
-        GAE[-1] = rewards[-1]
         return GAE
 
 
@@ -185,4 +189,4 @@ class ReconTrainer:
 
 if __name__=="__main__":
     trainer = ReconTrainer()
-    trainer.train(3,3,1)
+    trainer.train(100,50,3)

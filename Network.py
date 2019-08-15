@@ -95,6 +95,7 @@ class ReconChessNet(Model):
 		x = self.v(lstm)
 		return x
 
+
 	def loss(self,inputs,mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip):
 
 		lg_prob_old = tf.reshape(pad_sequences(lg_prob_old,padding='post',dtype=np.float32),(-1,))
