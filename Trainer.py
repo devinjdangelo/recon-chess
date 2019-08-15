@@ -120,7 +120,7 @@ class ReconTrainer:
 
     def train(self,update_n,batch_size,epochs):
         assert update_n%batch_size==0
-        n_batches = update_n//batch_size
+        n_batches = int(update_n/batch_size*epochs)
         loop = 1
         score = 0
         while True:
