@@ -2,6 +2,7 @@ import numpy as np
 from reconchess import *
 import random
 import time
+from copy import deepcopy
 
 from Network import ReconChessNet
 from ReconBot import ReconBot
@@ -142,6 +143,12 @@ class ReconTrainer:
         lg_prob_old = [b[:,1] for b in batch[2]]
         old_v_pred = [b[:,2] for b in batch[2]]
         gae = batch[4]
+
+        gae_flat = [i for episode in deepcopy(gae) for i in episode]
+        gae_u,gae_o = np.mean(gae_flat),np.std(gae_flat)+1e-8
+
+        gae = [(g-gae_u)/gae_o for g in gae]
+
         returns = [old_v_pred[i]+gae[i] for i in list(range(len(gae)))]
         clip = 0.2
 

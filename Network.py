@@ -100,14 +100,15 @@ class ReconChessNet(Model):
 		#vector reporting 1 for real data and 0 for padded 0's
 		actual_timesteps = tf.where(lg_prob_old<0,tf.ones_like(lg_prob_old),tf.zeros_like(lg_prob_old))
 		a_taken = tf.reshape(pad_sequences(a_taken,padding='post'),(-1,))
+
 		GAE = tf.reshape(pad_sequences(GAE,padding='post',dtype=np.float32),(-1,))
+
 		old_v_pred = tf.reshape(pad_sequences(old_v_pred,padding='post',dtype=np.float32),(-1,))
 		returns = tf.reshape(pad_sequences(returns,padding='post',dtype=np.float32),(-1,))
 		mask_padded = pad_sequences(mask,padding='post')
 		mask_padded = tf.cast(tf.reshape(mask_padded,(-1,4096)),tf.float32)
 
 		lstm = self.get_lstm(inputs,inference=False)
-		print('lstmpre ',lstm.shape)
 
 		#every other starting from first
 		lstm_pir = lstm[:,::2,:]
@@ -116,11 +117,7 @@ class ReconChessNet(Model):
 		
 		lstm_pir = tf.reshape(lstm_pir,(-1,256))
 		lstm_pim = tf.reshape(lstm_pim,(-1,256))
-		lstm = tf.reshape(lstm,(-1,256))
-
-		print('lstmpost ',lstm.shape)
-		print(len(mask),[m.shape for m in mask],mask_padded.shape)
-		
+		lstm = tf.reshape(lstm,(-1,256))	
 
 		pir = self.get_pir(lstm_pir)
 		pim = self.get_pim(lstm_pim,mask_padded)
@@ -131,35 +128,20 @@ class ReconChessNet(Model):
 		pir_taken = tf.stack([pir[i,j] for i,j in enumerate(a_taken_pir)])
 		pim_taken = tf.stack([pim[i,j] for i,j in enumerate(a_taken_pim)])
 
-		print('a_taken_pir',a_taken_pir.numpy())
-		print('a_taken_pim',a_taken_pim.numpy())
-
-		print('pir probs',pir_taken.numpy())
-		print('pim probs',pim_taken.numpy())
-
-		print('aftergather ',pir_taken.shape,pim_taken.shape)
-
 		pir_taken = tf.expand_dims(pir_taken,-1)
 		pim_taken = tf.expand_dims(pim_taken,-1)
-		print('preconcat ',pir_taken.shape,pim_taken.shape)
 		lg_prob_new = tf.concat([pir_taken,pim_taken],-1)
-		print('concatted ',lg_prob_new.shape)
 		lg_prob_new = tf.reshape(lg_prob_new,(-1,))
-		print('reshaped ',lg_prob_new.shape)
 		lg_prob_new = tf.where(actual_timesteps>0,tf.math.log(lg_prob_new),tf.zeros_like(lg_prob_new))
 		vpred = self.get_v(lstm)
 
-		GAE = (GAE - tf.math.reduce_mean(GAE)) / (tf.math.reduce_std(GAE)+1e-8)
-
-		print(actual_timesteps.numpy())
-		print(lg_prob_new.numpy())
-		print(lg_prob_old.numpy())
-		print((lg_prob_new-lg_prob_old).numpy())
-
+		
 		rt = tf.math.exp(lg_prob_new - lg_prob_old)
 		pg_losses1 = -GAE * rt
 		pg_losses2 = -GAE * tf.clip_by_value(rt,1-clip,1+clip)
+
 		pg_loss = tf.math.reduce_mean(tf.math.maximum(pg_losses1,pg_losses2))
+
 
 		vpredclipped = old_v_pred + tf.clip_by_value(vpred-old_v_pred,-clip,clip)
 		vf_losses1 = tf.square(vpred - returns)
@@ -171,6 +153,7 @@ class ReconChessNet(Model):
 		#so set p=0 -> p=1 so ln(p) = 0 
 		
 		mask_padded = tf.cast(mask_padded,dtype=tf.bool)
+
 		pim_e = pim + tf.cast(tf.math.logical_not(mask_padded),tf.float32)
 		e_f = lambda x : -tf.reduce_sum(x*tf.math.log(x))
 		entropy = e_f(pir) + e_f(pim_e)
@@ -189,7 +172,7 @@ class ReconChessNet(Model):
 		grads,g_n = tf.clip_by_global_norm(grads,0.5)
 		self.optimizer.apply_gradients(zip(grads,self.trainable_variables))
 
-		return loss.numpy(),loss.numpy(),loss.numpy(),loss.numpy(),loss.numpy()
+		return loss.numpy(),pg_loss.numpy(),entropy.numpy(),vf_loss.numpy(),g_n.numpy()
 
 	def sample_pir(self,x):
 		#return recon actions given batch of obs
