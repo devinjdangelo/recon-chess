@@ -97,6 +97,8 @@ class ReconChessNet(Model):
 	def loss(self,inputs,mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip):
 
 		lg_prob_old = tf.reshape(pad_sequences(lg_prob_old,padding='post',dtype=np.float32),(-1,))
+		#vector reporting 1 for real data and 0 for padded 0's
+		actual_timesteps = tf.where(lg_prob_old<0,tf.ones_like(lg_prob_old),tf.zeros_like(lg_prob_old))
 		a_taken = tf.reshape(pad_sequences(a_taken,padding='post'),(-1,))
 		GAE = tf.reshape(pad_sequences(GAE,padding='post',dtype=np.float32),(-1,))
 		old_v_pred = tf.reshape(pad_sequences(old_v_pred,padding='post',dtype=np.float32),(-1,))
@@ -144,13 +146,15 @@ class ReconChessNet(Model):
 		print('concatted ',lg_prob_new.shape)
 		lg_prob_new = tf.reshape(lg_prob_new,(-1,))
 		print('reshaped ',lg_prob_new.shape)
-		lg_prob_new = tf.math.log(lg_prob_new)
+		lg_prob_new = tf.where(actual_timesteps>0,tf.math.log(lg_prob_new),tf.zeros_like(lg_prob_new))
 		vpred = self.get_v(lstm)
 
 		GAE = (GAE - tf.math.reduce_mean(GAE)) / (tf.math.reduce_std(GAE)+1e-8)
 
+		print(actual_timesteps.numpy())
 		print(lg_prob_new.numpy())
 		print(lg_prob_old.numpy())
+		print((lg_prob_new-lg_prob_old).numpy())
 
 		rt = tf.math.exp(lg_prob_new - lg_prob_old)
 		pg_losses1 = -GAE * rt
@@ -200,7 +204,7 @@ class ReconChessNet(Model):
 
 		if self.netname == 'train':
 			print(actions,probs,value)
-			
+
 		return actions,probs,value
 
 	def sample_pim(self,x,mask):
