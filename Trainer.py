@@ -26,7 +26,12 @@ class ReconTrainer:
 
         with open('game_stats.csv','w',newline='', encoding='utf-8') as output:
                 wr = csv.writer(output)
-                wr.writerows([('Loop','Game','Color','Won','Reason','Score Avg')])
+                wr.writerows([('Loop','Game','Color','Moves','Won','Reason','Score Avg')])
+
+        with open('model_stats.csv','w',newline='', encoding='utf-8') as output:
+                wr = csv.writer(output)
+                wr.writerows([('Loss','Policy Loss','Entropy','Value Loss','Grad Norm')])
+
 
     def play_game(self,white,black):
         #adapted from reconchess.play.play_local_game() 
@@ -104,22 +109,23 @@ class ReconTrainer:
             else:
                 outmem,winner,win_reason = self.play_game(self.opponent_agent,self.train_agent)
 
+            printcolor = 'white' if color else 'black'
+            moves = outmem[0].shape[0]//2
+
             if winner is None:
                 score = 0.995*score
-                print('loop ',loop,' Game ',game,' No winner after',outmem[0].shape[0]//2,' moves',' current score: ','{:.5f}'.format(score))
-                performance_memory.append((loop,game,printcolor,0,None,score))
+                print('loop ',loop,' Game ',game,' No winner after',moves,' moves',' current score: ','{:.5f}'.format(score))
+                performance_memory.append((loop,game,printcolor,moves,0,None,score))
             elif winner==color:
-                printcolor = 'white' if color else 'black'
                 outmem[3][-1] += 1
                 score = 0.995*score + 0.005*1
-                performance_memory.append((loop,game,printcolor,1,win_reason,score))
-                print('loop ',loop,' Game ',game,' Trainbot wins as ',printcolor,' in',outmem[0].shape[0]//2,' moves by ',win_reason,' current score: ','{:.5f}'.format(score))
+                performance_memory.append((loop,game,printcolor,moves,1,win_reason,score))
+                print('loop ',loop,' Game ',game,' Trainbot wins as ',printcolor,' in',moves,' moves by ',win_reason,' current score: ','{:.5f}'.format(score))
             elif winner!=color:
-                printcolor = 'white' if color else 'black'
                 outmem[3][-1] -= 1
                 score = 0.995*score + 0.005*(-1)
-                print('loop ',loop,' Game ',game,' Trainbot loses as ',printcolor,' in',outmem[0].shape[0]//2,' moves by ',win_reason,' current score: ','{:.5f}'.format(score))
-                performance_memory.append((loop,game,printcolor,-1,None,score))
+                print('loop ',loop,' Game ',game,' Trainbot loses as ',printcolor,' in',moves,' moves by ',win_reason,' current score: ','{:.5f}'.format(score))
+                performance_memory.append((loop,game,printcolor,moves,-1,None,score))
 
             outmem.append(self.GAE(outmem[3],outmem[2][:,-1]))
             [mem.append(outmem[i]) for i,mem in enumerate(game_memory)]
@@ -149,6 +155,10 @@ class ReconTrainer:
                 batch = [[m[idx] for idx in sample_idx] for m in mem]
                 loss,pg_loss,entropy,vf_loss,g_n = self.send_batch(batch)
                 print('Loss: ',loss,' Policy Loss: ',pg_loss,' Entropy: ',entropy,' Value Loss: ',vf_loss,' Grad Norm: ',g_n)
+
+                with open('model_stats.csv','a',newline='', encoding='utf-8') as output:
+                    wr = csv.writer(output)
+                    wr.writerows([(loss,pg_loss,entropy,vf_loss,g_n)])
 
             self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
             loop += 1

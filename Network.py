@@ -20,7 +20,7 @@ class ReconChessNet(Model):
 		self.conv2 = Conv2D(32, 2, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last',name='conv2')
 		self.conv3 = Conv2D(64, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last',name='conv3')
 		self.conv4 = Conv2D(128, 1, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last',name='conv4')
-		self.flatten = Flatten(data_format='channels_first',name='flatten')
+		self.flatten = Flatten(data_format='channels_last',name='flatten')
 		#stateful is conveinient for sequential action sampling,
 		#but problematic because it requires fixed batch size
 		#could maintain two layers (one for action and one for training)
