@@ -13,7 +13,7 @@ class ReconChessNet(Model):
 		self.netname = name
 
 		super(ReconChessNet, self).__init__()
-		self.mask = Masking(mask_value=0)
+		#self.mask = Masking(mask_value=0)
 		#self.convshape = Reshape((13,8,8))
 		#channels first should work on GPU but not cpu for testing
 		self.conv1 = Conv2D(16, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last')
@@ -40,7 +40,7 @@ class ReconChessNet(Model):
 	def call(self,x):
 		pass
 
-	def get_lstm(self, x, inference=True):
+	def get_lstm(self, x, inference=True,mask=None):
 
 		batch_size=len(x)
 		x = pad_sequences(x,padding='post')
@@ -50,7 +50,7 @@ class ReconChessNet(Model):
 		x = tf.reshape(x,shape=(batch_size*time_steps,13,8,8))
 		#print(tf.reduce_mean(x,axis=[1,2,3],keepdims=True).numpy())
 		x = tf.cast(x,tf.float32) 
-		x = self.mask(x)
+		#x = self.mask(x)
 		x = self.conv1(x)
 		x = self.conv2(x)
 		x = self.conv3(x)
@@ -60,7 +60,8 @@ class ReconChessNet(Model):
 		if inference:
 			x = self.lstm_stateful(x)
 		else:
-			x = self.lstm(x)
+			mask = tf.reshape(mask,(batch_size,time_steps))
+			x = self.lstm(x,mask=mask)
 
 		return x
 
@@ -108,7 +109,7 @@ class ReconChessNet(Model):
 		mask_padded = pad_sequences(mask,padding='post')
 		mask_padded = tf.cast(tf.reshape(mask_padded,(-1,4096)),tf.float32)
 
-		lstm = self.get_lstm(inputs,inference=False)
+		lstm = self.get_lstm(inputs,inference=False,mask=actual_timesteps)
 
 		#every other starting from first
 		lstm_pir = lstm[:,::2,:]
@@ -155,17 +156,10 @@ class ReconChessNet(Model):
 		
 		mask_padded = tf.cast(mask_padded,dtype=tf.bool)
 
-		print('pim for entropy',tf.reduce_sum(pim).numpy(),pim.shape)
-		print('pir for entropy',tf.reduce_sum(pir).numpy(),pir.shape)
-
-
 		pim_e = pim + tf.cast(tf.math.logical_not(mask_padded),tf.float32)
 		pir_e = tf.where(pir>0,pir,tf.ones_like(pir))
 
 		e_f = lambda x : tf.reduce_mean(-tf.reduce_sum(x*tf.math.log(x),axis=1))
-
-		print('e_f pir',e_f(pir_e).numpy())
-		print('e_f pim',e_f(pim_e).numpy())
 
 		entropy = e_f(pir_e) + e_f(pim_e)
 
