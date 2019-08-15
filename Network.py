@@ -16,11 +16,11 @@ class ReconChessNet(Model):
 		#self.mask = Masking(mask_value=0)
 		#self.convshape = Reshape((13,8,8))
 		#channels first should work on GPU but not cpu for testing
-		self.conv1 = Conv2D(16, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last')
-		self.conv2 = Conv2D(32, 2, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last')
-		self.conv3 = Conv2D(64, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last')
-		self.conv4 = Conv2D(128, 1, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last')
-		self.flatten = Flatten(data_format='channels_first')
+		self.conv1 = Conv2D(16, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last',name='conv1')
+		self.conv2 = Conv2D(32, 2, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last',name='conv2')
+		self.conv3 = Conv2D(64, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last',name='conv3')
+		self.conv4 = Conv2D(128, 1, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last',name='conv4')
+		self.flatten = Flatten(data_format='channels_first',name='flatten')
 		#stateful is conveinient for sequential action sampling,
 		#but problematic because it requires fixed batch size
 		#could maintain two layers (one for action and one for training)
@@ -29,11 +29,11 @@ class ReconChessNet(Model):
 		self.lstm_stateful = LSTM(256,stateful=True,name='stateful_lstm',trainable=False)
 		self.lstm = LSTM(256,return_sequences=True,name='training_lstm')
 
-		self.pir = Dense(6*6)
+		self.pir = Dense(6*6,name='pir')
 
-		self.pim = Dense(8*8*8*8)
+		self.pim = Dense(8*8*8*8,name='pim')
 
-		self.v = Dense(1)
+		self.v = Dense(1,name='v')
 
 		self.optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
 
@@ -134,7 +134,8 @@ class ReconChessNet(Model):
 		pim_taken = tf.expand_dims(pim_taken,-1)
 		lg_prob_new = tf.concat([pir_taken,pim_taken],-1)
 		lg_prob_new = tf.reshape(lg_prob_new,(-1,))
-		lg_prob_new = tf.where(actual_timesteps>0,tf.math.log(lg_prob_new),tf.zeros_like(lg_prob_new))
+		lg_prob_new = tf.where(actual_timesteps>0,lg_prob_new,tf.ones_like(lg_prob_new))
+		lg_prob_new = tf.math.log(lg_prob_new)
 		vpred = self.get_v(lstm)
 
 		
@@ -164,6 +165,7 @@ class ReconChessNet(Model):
 		entropy = e_f(pir_e) + e_f(pim_e)
 
 		loss = pg_loss - .02*entropy + vf_loss
+		#loss = pg_loss + vf_loss
 
 		return loss,pg_loss,entropy,vf_loss
 
