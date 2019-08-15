@@ -143,6 +143,8 @@ class ReconBot(Player):
         self._print_obs('handle sense')
 
     def choose_move(self, move_actions: List[chess.Move], seconds_left: float) -> Optional[chess.Move]:
+        if self.net.netname=='opponent':
+            return None
         self.mask = np.zeros((1,8,8,8,8))
         col_row_moves = []
         for move in move_actions:

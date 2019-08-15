@@ -128,10 +128,10 @@ class ReconTrainer:
             samples_available = list(range(update_n))
             for i in range(n_batches):
                 sample_idx = np.random.choice(samples_available,replace=False,size=batch_size)
+                samples_available = [idx for idx in samples_available if idx not in sample_idx]
                 if len(samples_available)<batch_size:
                     samples_available = list(range(update_n))
-                else:
-                    samples_available = [idx for idx in samples_available if idx not in sample_idx]
+                    
                 batch = [[m[idx] for idx in sample_idx] for m in mem]
                 loss,pg_loss,entropy,vf_loss,g_n = self.send_batch(batch)
                 print('Loss: ',loss,' Policy Loss: ',pg_loss,' Entropy: ',entropy,' Value Loss: ',vf_loss,' Grad Norm: ',g_n)
@@ -189,4 +189,4 @@ class ReconTrainer:
 
 if __name__=="__main__":
     trainer = ReconTrainer()
-    trainer.train(100,50,3)
+    trainer.train(20,10,3)

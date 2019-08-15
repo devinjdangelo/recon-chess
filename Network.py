@@ -48,9 +48,9 @@ class ReconChessNet(Model):
 		x = tf.reshape(x,(batch_size,-1,13,8,8))
 		time_steps = x.shape[1]
 		x = tf.reshape(x,shape=(batch_size*time_steps,13,8,8))
-		#print(tf.reduce_mean(x,axis=[1,2,3],keepdims=True).numpy())
+		#convert to channels last for cpu
+		x = tf.transpose(x,[0,2,3,1])
 		x = tf.cast(x,tf.float32) 
-		#x = self.mask(x)
 		x = self.conv1(x)
 		x = self.conv2(x)
 		x = self.conv3(x)
