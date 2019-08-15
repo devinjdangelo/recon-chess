@@ -2,6 +2,7 @@ import numpy as np
 from reconchess import *
 import random
 import time
+import csv
 from copy import deepcopy
 
 from Network import ReconChessNet
@@ -22,6 +23,10 @@ class ReconTrainer:
 
         self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
         self.opponent_net.set_weights(self.train_net.get_weights())
+
+        with open('game_stats.csv','w',newline='', encoding='utf-8') as output:
+                wr = csv.writer(output)
+                wr.writerows([('Loop','Game','Color','Won','Reason','Score Avg')])
 
     def play_game(self,white,black):
         #adapted from reconchess.play.play_local_game() 
@@ -91,6 +96,7 @@ class ReconTrainer:
 
     def collect_exp(self,n_games,loop,score):
         game_memory = [[],[],[],[],[]]
+        performance_memory = []
         for game in range(n_games):
             color = random.choice([True,False])
             if color:
@@ -101,22 +107,25 @@ class ReconTrainer:
             if winner is None:
                 score = 0.995*score
                 print('loop ',loop,' Game ',game,' No winner after',outmem[0].shape[0]//2,' moves',' current score: ','{:.5f}'.format(score))
+                performance_memory.append((loop,game,printcolor,0,None,score))
             elif winner==color:
                 printcolor = 'white' if color else 'black'
                 outmem[3][-1] += 1
                 score = 0.995*score + 0.005*1
+                performance_memory.append((loop,game,printcolor,1,win_reason,score))
                 print('loop ',loop,' Game ',game,' Trainbot wins as ',printcolor,' in',outmem[0].shape[0]//2,' moves by ',win_reason,' current score: ','{:.5f}'.format(score))
             elif winner!=color:
                 printcolor = 'white' if color else 'black'
                 outmem[3][-1] -= 1
                 score = 0.995*score + 0.005*(-1)
                 print('loop ',loop,' Game ',game,' Trainbot loses as ',printcolor,' in',outmem[0].shape[0]//2,' moves by ',win_reason,' current score: ','{:.5f}'.format(score))
+                performance_memory.append((loop,game,printcolor,-1,None,score))
 
             outmem.append(self.GAE(outmem[3],outmem[2][:,-1]))
             [mem.append(outmem[i]) for i,mem in enumerate(game_memory)]
 
 
-        return game_memory
+        return game_memory,score,performance_memory
 
     def train(self,update_n,batch_size,epochs):
         assert update_n%batch_size==0
@@ -124,7 +133,12 @@ class ReconTrainer:
         loop = 1
         score = 0
         while True:
-            mem = self.collect_exp(update_n,loop,score)
+            mem,score,perf = self.collect_exp(update_n,loop,score)
+
+            with open('game_stats.csv','a',newline='', encoding='utf-8') as output:
+                wr = csv.writer(output)
+                wr.writerows(perf)
+
             samples_available = list(range(update_n))
             for i in range(n_batches):
                 sample_idx = np.random.choice(samples_available,replace=False,size=batch_size)
@@ -137,6 +151,7 @@ class ReconTrainer:
                 print('Loss: ',loss,' Policy Loss: ',pg_loss,' Entropy: ',entropy,' Value Loss: ',vf_loss,' Grad Norm: ',g_n)
 
             self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
+            loop += 1
             #if loop%5==0:
                 #self.opponent_net.set_weights(self.train_net.get_weights)
 
@@ -183,10 +198,6 @@ class ReconTrainer:
 
 
             
-
-
-
-
 if __name__=="__main__":
     trainer = ReconTrainer()
     trainer.train(20,10,3)
