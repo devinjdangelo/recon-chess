@@ -120,6 +120,7 @@ class ReconChessNet(Model):
 		lstm = tf.reshape(lstm,(-1,256))	
 
 		pir = self.get_pir(lstm_pir)
+		pir = pir*tf.expand_dims(actual_timesteps[::2],axis=-1)
 		pim = self.get_pim(lstm_pim,mask_padded)
 
 		a_taken_pir = a_taken[::2]
@@ -154,11 +155,21 @@ class ReconChessNet(Model):
 		
 		mask_padded = tf.cast(mask_padded,dtype=tf.bool)
 
-		pim_e = pim + tf.cast(tf.math.logical_not(mask_padded),tf.float32)
-		e_f = lambda x : -tf.reduce_sum(x*tf.math.log(x))
-		entropy = e_f(pir) + e_f(pim_e)
+		print('pim for entropy',tf.reduce_sum(pim).numpy(),pim.shape)
+		print('pir for entropy',tf.reduce_sum(pir).numpy(),pir.shape)
 
-		loss = pg_loss - entropy + vf_loss
+
+		pim_e = pim + tf.cast(tf.math.logical_not(mask_padded),tf.float32)
+		pir_e = tf.where(pir>0,pir,tf.ones_like(pir))
+
+		e_f = lambda x : tf.reduce_mean(-tf.reduce_sum(x*tf.math.log(x),axis=1))
+
+		print('e_f pir',e_f(pir_e).numpy())
+		print('e_f pim',e_f(pim_e).numpy())
+
+		entropy = e_f(pir_e) + e_f(pim_e)
+
+		loss = pg_loss - .02*entropy + vf_loss
 
 		return loss,pg_loss,entropy,vf_loss
 
@@ -185,9 +196,6 @@ class ReconChessNet(Model):
 
 		value = self.get_v(lstm).numpy()[:,0]
 
-		if self.netname == 'train':
-			print(actions,probs,value)
-
 		return actions,probs,value
 
 	def sample_pim(self,x,mask):
@@ -201,9 +209,6 @@ class ReconChessNet(Model):
 
 
 		value = self.get_v(lstm).numpy()[:,0]
-
-		if self.netname == 'train':
-			print(actions,probs,value)
 
 		return actions,probs,value
 
