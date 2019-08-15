@@ -129,6 +129,10 @@ class ReconChessNet(Model):
 		pir_taken = tf.stack([pir[i,j] for i,j in enumerate(a_taken_pir)])
 		pim_taken = tf.stack([pim[i,j] for i,j in enumerate(a_taken_pim)])
 
+		print('a_taken_pir',a_taken_pir.numpy())
+		print('a_taken_pim',a_taken_pim.numpy())
+
+		print('pir probs',pir_taken.numpy())
 		print('pim probs',pim_taken.numpy())
 
 		print('aftergather ',pir_taken.shape,pim_taken.shape)
@@ -193,6 +197,10 @@ class ReconChessNet(Model):
 		probs = [x[i,action].numpy() for i,action in enumerate(actions)]
 
 		value = self.get_v(lstm).numpy()[:,0]
+
+		if self.netname == 'train':
+			print(actions,probs,value)
+			
 		return actions,probs,value
 
 	def sample_pim(self,x,mask):
@@ -204,7 +212,12 @@ class ReconChessNet(Model):
 		actions = tf.random.categorical(x,1).numpy()[:,0]
 		probs = [x[i,action].numpy() for i,action in enumerate(actions)]
 
+
 		value = self.get_v(lstm).numpy()[:,0]
+
+		if self.netname == 'train':
+			print(actions,probs,value)
+
 		return actions,probs,value
 
 

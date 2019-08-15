@@ -41,7 +41,7 @@ class ReconTrainer:
         obs_memory = np.zeros(shape=(maximum_moves*2,13,8,8),dtype=np.float32)
         mask_memory = np.zeros(shape=(maximum_moves,4096),dtype=np.int32)
         #action,prob,value
-        action_memory = np.zeros(shape=(maximum_moves*2,3),dtype=np.int32)
+        action_memory = np.zeros(shape=(maximum_moves*2,3),dtype=np.float32)
         rewards = np.zeros(shape=(maximum_moves*2,),dtype=np.float32)
 
 
@@ -138,8 +138,8 @@ class ReconTrainer:
     def send_batch(self,batch):
         inputs = batch[0]
         mask = batch[1]
-        lg_prob_old = [b[:,0] for b in batch[2]]
-        a_taken = [b[:,1] for b in batch[2]]
+        a_taken = [b[:,0] for b in batch[2]]
+        lg_prob_old = [b[:,1] for b in batch[2]]
         old_v_pred = [b[:,2] for b in batch[2]]
         gae = batch[4]
         returns = [old_v_pred[i]+gae[i] for i in list(range(len(gae)))]
