@@ -139,9 +139,16 @@ class ReconTrainer:
                 if (winner and train_as_white) or (not winner and not train_as_white):
                     rewards[rank,total_turns] += 1
                     self.splits[rank] = 1
+                    self.score = 1*.005 + self.score * 0.995
+                    self.wins += 1
                 elif (not winner and train_as_white) or (winner and not train_as_white):
                     rewards[rank,total_turns] -= 1
                     self.splits[rank] = 1
+                    self.score = -1*.005 + self.score * 0.995
+                    self.losses += 1
+            else:
+                self.score = self.score * 0.995
+                self.ties += 1
 
             if total_turns == n_moves:
                 if rank==0:
@@ -173,50 +180,68 @@ class ReconTrainer:
 
         return memory
 
-    def collect_exp(self,n_rounds,n_moves,loop,score):
+    def collect_exp(self,n_rounds,n_moves,loop):
         game_memory = [[],[],[],[],[],[]]
-        performance_memory = []
-        for game in range(n_games):
+        for game in range(n_rounds):
             outmem = self.play_n_moves(n_moves)
+            if rank==0:
+                ngames = len(outmem[0])
+                print(ngames,' Games Played ',self.wins, ' Wins ',self.losses,' losses ',self.ties,' ties ',self.score, ' score')
 
-            game_memory = [game_memory[i]+outmem[i] for i in range(len(game_memory))]
-
-
-        return game_memory,score,performance_memory
-
-    def train(self,update_n,batch_size,epochs):
-        assert update_n%batch_size==0
-        n_batches = int(update_n/batch_size*epochs)
-        loop = 1
-        score = 0
-        while True:
-            mem,score,perf = self.collect_exp(update_n,loop,score)
-
-            with open('game_stats.csv','a',newline='', encoding='utf-8') as output:
-                wr = csv.writer(output)
-                wr.writerows(perf)
-
-            samples_available = list(range(update_n))
-            for i in range(n_batches):
-                sample_idx = np.random.choice(samples_available,replace=False,size=batch_size)
-                samples_available = [idx for idx in samples_available if idx not in sample_idx]
-                if len(samples_available)<batch_size:
-                    samples_available = list(range(update_n))
-                    
-                batch = [[m[idx] for idx in sample_idx] for m in mem]
-                loss,pg_loss,entropy,vf_loss,g_n = self.send_batch(batch)
-                print('Loss: ',loss,' Policy Loss: ',pg_loss,' Entropy: ',entropy,' Value Loss: ',vf_loss,' Grad Norm: ',g_n)
-
-                with open('model_stats.csv','a',newline='', encoding='utf-8') as output:
+                with open('game_stats.csv','a',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
-                    wr.writerows([(loss,pg_loss,entropy,vf_loss,g_n)])
+                    wr.writerow([loop,game,ngames,self.wins,self.losses,self.ties,self.score])
 
-            self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
+                self.wins = 0
+                self.losses = 0
+                self.ties = 0
+
+                game_memory = [game_memory[i]+outmem[i] for i in range(len(game_memory))]
+
+        return game_memory
+
+    def train(self,n_rounds,n_moves,epochs):
+        loop = 1
+        self.score = SharedArray((1,),dtype=np.float32)
+        self.wins = SharedArray((1,),dtype=np.float32)
+        self.losses = SharedArray((1,),dtype=np.float32)
+        self.ties = SharedArray((1,),dtype=np.float32)
+
+        if rank==0:
+            self.score = 0
+            self.wins = 0
+            self.losses = 0
+            self.ties =0
+
+        while True:
+            mem = self.collect_exp(n_rounds,n_moves)
+
+            if rank==0:
+                samples_available = list(range(len(mem[0])))
+                batch_size = len(samples_available)//2
+                n_batches = len(samples_available)//batch_size*epochs
+
+                for i in range(n_batches):
+                    sample_idx = np.random.choice(samples_available,replace=False,size=batch_size)
+                    samples_available = [idx for idx in samples_available if idx not in sample_idx]
+                    if len(samples_available)<batch_size:
+                        samples_available = list(range(update_n))
+                        
+                    batch = [[m[idx] for idx in sample_idx] for m in mem]
+                    loss,pg_loss,entropy,vf_loss,g_n = self.send_batch(batch)
+                    print('Loss: ',loss,' Policy Loss: ',pg_loss,' Entropy: ',entropy,' Value Loss: ',vf_loss,' Grad Norm: ',g_n)
+
+                    with open('model_stats.csv','a',newline='', encoding='utf-8') as output:
+                        wr = csv.writer(output)
+                        wr.writerows([(loss,pg_loss,entropy,vf_loss,g_n)])
+
+                self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
+
+                #if loop%5==0:
+                    #self.opponent_net.set_weights(self.train_net.get_weights)
+
             loop += 1
-            #if loop%5==0:
-                #self.opponent_net.set_weights(self.train_net.get_weights)
-
-
+            comm.Barrier()
 
     def send_batch(self,batch):
         inputs = batch[0]
