@@ -4,7 +4,13 @@ import random
 import time
 import csv
 from copy import deepcopy
+from mpi4py import MPI 
 
+comm = MPI.COMM_WORLD 
+rank = comm.rank
+workers  = comm.Get_size()
+
+from Sharedmem import SharedArray
 from Network import ReconChessNet
 from ReconBot import ReconBot
 
@@ -15,128 +21,165 @@ class ReconTrainer:
     def __init__(self):
         self.train_net = ReconChessNet('train')
         self.train_agent = ReconBot(net=self.train_net,verbose=False)
-        self.train_agent.init_net()
 
         self.opponent_net = ReconChessNet('opponent')
         self.opponent_agent = ReconBot(net=self.opponent_net,verbose=False)
-        self.opponent_agent.init_net()
 
-        self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
-        self.opponent_net.set_weights(self.train_net.get_weights())
+        self.bootstrap = SharedArray((workers,),dtype=np.int32)
+        self.splits = SharedArray((workers,),dtype=np.int32)
 
-        with open('game_stats.csv','w',newline='', encoding='utf-8') as output:
-                wr = csv.writer(output)
-                wr.writerows([('Loop','Game','Color','Moves','Won','Reason','Score Avg')])
+        if rank==0:
+            self.train_agent.init_net()
+            self.opponent_agent.init_net()
 
-        with open('model_stats.csv','w',newline='', encoding='utf-8') as output:
-                wr = csv.writer(output)
-                wr.writerows([('Loss','Policy Loss','Entropy','Value Loss','Grad Norm')])
+            self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
+            self.opponent_net.set_weights(self.train_net.get_weights())
+
+            with open('game_stats.csv','w',newline='', encoding='utf-8') as output:
+                    wr = csv.writer(output)
+                    wr.writerows([('Loop','Game','Color','Moves','Won','Reason','Score Avg')])
+
+            with open('model_stats.csv','w',newline='', encoding='utf-8') as output:
+                    wr = csv.writer(output)
+                    wr.writerows([('Loss','Policy Loss','Entropy','Value Loss','Grad Norm')])
 
 
-    def play_game(self,white,black):
+    def play_n_moves(self,n_moves):
         #adapted from reconchess.play.play_local_game() 
+        #gathers n_moves of experience, restarting the game as many times as needed
         #white -> white player agent
         #black -> black player agent
-        game = LocalGame()
 
-        white_name = white.__class__.__name__
-        black_name = black.__class__.__name__
-
-        white.handle_game_start(chess.WHITE, game.board.copy(), white_name)
-        black.handle_game_start(chess.BLACK, game.board.copy(), black_name)
-        game.start()
-
-        players = [black, white]
-
-        maximum_moves = 50
-        obs_memory = np.zeros(shape=(maximum_moves*2,13,8,8),dtype=np.float32)
-        mask_memory = np.zeros(shape=(maximum_moves,4096),dtype=np.int32)
-        #action,prob,value
-        action_memory = np.zeros(shape=(maximum_moves*2,3),dtype=np.float32)
-        rewards = np.zeros(shape=(maximum_moves*2,),dtype=np.float32)
-
-
-        turn = 0
-        while not game.is_over() and turn//2<maximum_moves:
-            player = players[game.turn]
-            sense_actions = game.sense_actions()
-            move_actions = game.move_actions()
-
-            notify_opponent_move_results(game, player)
-
-            if player is self.train_agent:
-                obs_memory[turn,:,:,:] = np.copy(self.train_agent.obs)
-                play_sense(game, player, sense_actions, move_actions)
-                action_memory[turn,:] = np.copy(self.train_agent.action_memory)
-                rewards[turn] = 0
-                turn += 1
-            else:
-                play_sense(game, player, sense_actions, move_actions)
-
-            if player is self.train_agent:
-                obs_memory[turn,:,:,:] = np.copy(self.train_agent.obs)
-                play_move(game, player, move_actions)
-                mask_memory[turn//2,:] = np.copy(self.train_agent.mask)[0,:]
-                action_memory[turn,:] = np.copy(self.train_agent.action_memory)
-                rewards[turn] = 0
-                turn += 1
-            else:
-                play_move(game, player, move_actions)
-
-
-        game.end()
-        winner = game.get_winner_color()
-        win_reason = game.get_win_reason()
-        game_history = game.get_game_history()
-
-        white.handle_game_end(winner, win_reason, game_history)
-        black.handle_game_end(winner, win_reason, game_history)
-
-        if turn//2==maximum_moves and winner is None:
-            terminal_state_value = self.train_agent.get_terminal_v()[0]
-        else:
-            terminal_state_value = None
         
+        if rank==0:
+            self.splits = np.zeros(self.splits.shape,dtype=np.int32)
+            self.bootstrap = np.ones(self.bootstrap.shape,dtype=np.int32)
+            bootstrap = np.ones((workers,n_moves),dtype=np.int32)
+            split_idx = []
 
-        memory = [obs_memory,mask_memory,action_memory,rewards]
-        newsize = [turn,turn//2,turn,turn]
-        memory = [np.resize(mem,(newsize[i],)+mem.shape[1:]) for i,mem in enumerate(memory)]
+        obs_memory = np.zeros(shape=(workers,n_moves*2,13,8,8),dtype=np.float32)
+        mask_memory = np.zeros(shape=(workers,n_moves,4096),dtype=np.int32)
+        #action,prob,value
+        action_memory = np.zeros(shape=(workers,n_moves*2,3),dtype=np.float32)
+        rewards = np.zeros(shape=(workers,n_moves*2,),dtype=np.float32)
 
-        return memory,winner,win_reason,terminal_state_value
+        total_turns = 0
 
-    def collect_exp(self,n_games,loop,score):
-        game_memory = [[],[],[],[],[]]
+        while total_turns//2<n_moves:
+
+            game = LocalGame()
+
+            train_as_white = random.choice([True,False])
+            if train_as_white:
+                white = self.train_agent
+                black = self.opponent_agent
+            else:
+                black = self.train_agent
+                white = self.opponent_agent
+
+            white_name = white.__class__.__name__
+            black_name = black.__class__.__name__
+
+            white.handle_game_start(chess.WHITE, game.board.copy(), white_name)
+            black.handle_game_start(chess.BLACK, game.board.copy(), black_name)
+            game.start()
+
+            players = [black, white]
+
+            while not game.is_over() and total_turns//2<n_moves:
+                comm.Barrier()
+                if rank==0:
+                    split_idx += [i*total_turns for i in range(workers) if self.splits[i]==1]
+                    self.splits[:] = [0]*workers
+
+                player = players[game.turn]
+                sense_actions = game.sense_actions()
+                move_actions = game.move_actions()
+
+                notify_opponent_move_results(game, player)
+
+                if player is self.train_agent:
+                    if rank==0:
+                        obs_memory[:,total_turns,:,:,:] = np.copy(self.train_agent.obs)
+                    comm.Barrier()
+                    play_sense(game, player, sense_actions, move_actions)
+                    if rank==0:
+                        action_memory[:,total_turns,:] = np.copy(self.train_agent.action_memory)
+                        rewards[:,total_turns] = [0]*workers
+                    comm.Barrier()
+                    total_turns += 1
+                else:
+                    play_sense(game, player, sense_actions, move_actions)
+
+                if player is self.train_agent:
+                    if rank==0:
+                        obs_memory[:,total_turns,:,:,:] = np.copy(self.train_agent.obs)
+                    comm.Barrier()
+                    play_move(game, player, move_actions)
+                    if rank==0:
+                        mask_memory[:,total_turns//2,:] = np.copy(self.train_agent.mask)
+                        action_memory[:,total_turns,:] = np.copy(self.train_agent.action_memory)
+                        rewards[:,total_turns] = [0]*workers
+                    comm.Barrier()
+                    
+                    total_turns += 1
+                else:
+                    play_move(game, player, move_actions)
+
+
+            game.end()
+            winner = game.get_winner_color()
+            win_reason = game.get_win_reason()
+            game_history = game.get_game_history()
+
+            white.handle_game_end(winner, win_reason, game_history)
+            black.handle_game_end(winner, win_reason, game_history)
+
+            if winner is not None:
+                if (winner and train_as_white) or (not winner and not train_as_white):
+                    rewards[rank,total_turns] += 1
+                    self.splits[rank] = 1
+                elif (not winner and train_as_white) or (winner and not train_as_white):
+                    rewards[rank,total_turns] -= 1
+                    self.splits[rank] = 1
+
+            if total_turns == n_moves:
+                if rank==0:
+                    terminal_state_value = self.train_agent.get_terminal_v()
+                if winner is not None:
+                    self.bootstrap[rank] = 0
+                comm.Barrier()
+                bootstrap[:,-1] = np.copy(self.bootstrap)
+                bootstrap[:,-2] = list(range(workers))
+
+            
+            if rank==0:
+                memory = [obs_memory,mask_memory,action_memory,rewards]
+                memory = [np.reshape(m,(workers*n_moves,)+m.shape[2:]) for m in memory]
+                split_idx = split_idx.sorted()
+                memory = [np.split(m,split_idx,axis=0) for m in memory]
+
+                bootstrap = np.split(np.reshape(bootstrap,(-1,)),split_idx)
+                gae = []
+                for i in range(len(memory[0])):
+                    bootstrap = bootstrap[i][-1]==1
+                    if bootstrap:
+                        tv = terminal_state_value[[bootstrap[i][-2]]]
+                    gae += self.GAE(memory[3][i],memory[2][i][:,-1],bootstrap=bootstrap,terminal_state_value=tv)
+
+                memory.append(gae)
+
+
+
+        return memory
+
+    def collect_exp(self,n_rounds,n_moves,loop,score):
+        game_memory = [[],[],[],[],[],[]]
         performance_memory = []
         for game in range(n_games):
-            color = random.choice([True,False])
-            if color:
-                outmem,winner,win_reason,terminal_state_value = self.play_game(self.train_agent,self.opponent_agent)
-            else:
-                outmem,winner,win_reason,terminal_state_value = self.play_game(self.opponent_agent,self.train_agent)
+            outmem = self.play_n_moves(n_moves)
 
-            printcolor = 'white' if color else 'black'
-            moves = outmem[0].shape[0]//2
-
-            if winner is None:
-                score = 0.995*score
-                print('loop ',loop,' Game ',game,' No winner after',moves,' moves',' current score: ','{:.5f}'.format(score))
-                performance_memory.append((loop,game,printcolor,moves,0,None,score))
-                bootstrap = True
-            elif winner==color:
-                outmem[3][-1] += 1
-                score = 0.995*score + 0.005*1
-                performance_memory.append((loop,game,printcolor,moves,1,win_reason,score))
-                print('loop ',loop,' Game ',game,' Trainbot wins as ',printcolor,' in',moves,' moves by ',win_reason,' current score: ','{:.5f}'.format(score))
-                bootstrap = False
-            elif winner!=color:
-                outmem[3][-1] -= 1
-                score = 0.995*score + 0.005*(-1)
-                print('loop ',loop,' Game ',game,' Trainbot loses as ',printcolor,' in',moves,' moves by ',win_reason,' current score: ','{:.5f}'.format(score))
-                performance_memory.append((loop,game,printcolor,moves,-1,None,score))
-                bootstrap = False
-
-            outmem.append(self.GAE(outmem[3],outmem[2][:,-1],bootstrap=bootstrap,terminal_state_value=terminal_state_value))
-            [mem.append(outmem[i]) for i,mem in enumerate(game_memory)]
+            game_memory = [game_memory[i]+outmem[i] for i in range(len(game_memory))]
 
 
         return game_memory,score,performance_memory
