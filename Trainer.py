@@ -18,30 +18,59 @@ from ReconBot import ReconBot
 class ReconTrainer:
     # implements training procedures for ReconBot
     # by interfacing with reconchess api
-    def __init__(self):
-        self.train_net = ReconChessNet('train')
-        self.train_agent = ReconBot(net=self.train_net,verbose=False)
+    def __init__(self,model_path,load_model,opponent_initial_model_path,score,score_smoothing,game_stat_path,net_stat_path):
 
-        self.opponent_net = ReconChessNet('opponent')
-        self.opponent_agent = ReconBot(net=self.opponent_net,verbose=False)
+        self.model_path = model_path
+        self.game_stat_path = game_stat_path
+        self.net_stat_path = net_stat_path
+
 
         self.bootstrap = SharedArray((workers,),dtype=np.int32)
         self.splits = SharedArray((workers,),dtype=np.int32)
 
+        self.score = SharedArray((1,),dtype=np.float32)
+        self.wins = SharedArray((1,),dtype=np.float32)
+        self.losses = SharedArray((1,),dtype=np.float32)
+        self.ties = SharedArray((1,),dtype=np.float32)
+
+        self.score_smoothing = score_smoothing
+
         if rank==0:
+            self.score = score
+            self.wins = 0
+            self.losses = 0
+            self.ties =0
+
             self.train_agent.init_net()
             self.opponent_agent.init_net()
 
-            self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
-            self.opponent_net.set_weights(self.train_net.get_weights())
+            self.train_net = ReconChessNet('train')
+            self.train_agent = ReconBot(net=self.train_net,verbose=False)
 
-            with open('game_stats.csv','w',newline='', encoding='utf-8') as output:
-                    wr = csv.writer(output)
-                    wr.writerows([('Loop','Game','Color','Moves','Won','Reason','Score Avg')])
+            self.opponent_net = ReconChessNet('opponent')
+            self.opponent_agent = ReconBot(net=self.opponent_net,verbose=False)
 
-            with open('model_stats.csv','w',newline='', encoding='utf-8') as output:
+            if not load_model:
+                self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
+                self.opponent_net.set_weights(self.train_net.get_weights())            
+
+            else:
+                self.train_net.load_weights(self.model_path)
+                self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
+                if opponent_initial_model_path is not None:
+                    self.opponent_net.load_weights(opponent_initial_model_path)
+                    self.opponent_net.lstm_stateful.set_weights(self.opponent_net.lstm.get_weights())
+                else:
+                    self.opponent_net.set_weights(self.train_net.get_weights()) 
+
+
+            with open(self.game_stat_path,'w',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
-                    wr.writerows([('Loss','Policy Loss','Entropy','Value Loss','Grad Norm')])
+                    wr.writerows([('Loop','Round','ngames','Wins','Losses','Ties','Score Avg')])
+
+            with open(self.net_stat_path,'w',newline='', encoding='utf-8') as output:
+                    wr = csv.writer(output)
+                    wr.writerows([('Batch Size','Avg Game Len','Loss','Policy Loss','Entropy','Value Loss','Grad Norm')])
 
 
     def play_n_moves(self,n_moves):
@@ -139,15 +168,15 @@ class ReconTrainer:
                 if (winner and train_as_white) or (not winner and not train_as_white):
                     rewards[rank,total_turns] += 1
                     self.splits[rank] = 1
-                    self.score = 1*.005 + self.score * 0.995
+                    self.score = 1*(1-self.score_smoothing)+ self.score * self.score_smoothing
                     self.wins += 1
                 elif (not winner and train_as_white) or (winner and not train_as_white):
                     rewards[rank,total_turns] -= 1
                     self.splits[rank] = 1
-                    self.score = -1*.005 + self.score * 0.995
+                    self.score = -1*(1-self.score_smoothing)+ self.score * self.score_smoothing
                     self.losses += 1
             else:
-                self.score = self.score * 0.995
+                self.score = self.score * self.score_smoothing
                 self.ties += 1
 
             if total_turns == n_moves:
@@ -188,7 +217,7 @@ class ReconTrainer:
                 ngames = len(outmem[0])
                 print(ngames,' Games Played ',self.wins, ' Wins ',self.losses,' losses ',self.ties,' ties ',self.score, ' score')
 
-                with open('game_stats.csv','a',newline='', encoding='utf-8') as output:
+                with open(self.game_stat_path,'a',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
                     wr.writerow([loop,game,ngames,self.wins,self.losses,self.ties,self.score])
 
@@ -200,18 +229,8 @@ class ReconTrainer:
 
         return game_memory
 
-    def train(self,n_rounds,n_moves,epochs):
+    def train(self,n_rounds,n_moves,epochs,equalize_weights_every_n,save_every_n):
         loop = 1
-        self.score = SharedArray((1,),dtype=np.float32)
-        self.wins = SharedArray((1,),dtype=np.float32)
-        self.losses = SharedArray((1,),dtype=np.float32)
-        self.ties = SharedArray((1,),dtype=np.float32)
-
-        if rank==0:
-            self.score = 0
-            self.wins = 0
-            self.losses = 0
-            self.ties =0
 
         while True:
             mem = self.collect_exp(n_rounds,n_moves)
@@ -229,16 +248,19 @@ class ReconTrainer:
                         
                     batch = [[m[idx] for idx in sample_idx] for m in mem]
                     loss,pg_loss,entropy,vf_loss,g_n = self.send_batch(batch)
-                    print('Loss: ',loss,' Policy Loss: ',pg_loss,' Entropy: ',entropy,' Value Loss: ',vf_loss,' Grad Norm: ',g_n)
+                    print('batch_size',batch_size,'Loss: ',loss,' Policy Loss: ',pg_loss,' Entropy: ',entropy,' Value Loss: ',vf_loss,' Grad Norm: ',g_n)
 
-                    with open('model_stats.csv','a',newline='', encoding='utf-8') as output:
+                    with open(self.net_stat_path,'a',newline='', encoding='utf-8') as output:
                         wr = csv.writer(output)
                         wr.writerows([(loss,pg_loss,entropy,vf_loss,g_n)])
 
                 self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
 
-                #if loop%5==0:
+                #if loop%equalize_weights_every_n==0:
                     #self.opponent_net.set_weights(self.train_net.get_weights)
+
+                if loop%save_every_n==0:
+                    self.train_net.save_weights(self.model_path)
 
             loop += 1
             comm.Barrier()
@@ -288,6 +310,3 @@ class ReconTrainer:
 
 
             
-if __name__=="__main__":
-    trainer = ReconTrainer()
-    trainer.train(20,10,3)
