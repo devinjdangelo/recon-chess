@@ -13,13 +13,19 @@ class ReconChessNet(Model):
 		self.netname = name
 
 		super(ReconChessNet, self).__init__()
-		#channels first optimal for gpu
+		#self.mask = Masking(mask_value=0)
+		#self.convshape = Reshape((13,8,8))
+		#channels first should work on GPU but not cpu for testing
 		self.conv1 = Conv2D(16, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv1')
 		self.conv2 = Conv2D(32, 2, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv2')
 		self.conv3 = Conv2D(64, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv3')
 		self.conv4 = Conv2D(128, 1, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv4')
 		self.flatten = Flatten(data_format='channels_first',name='flatten')
-
+		#stateful is conveinient for sequential action sampling,
+		#but problematic because it requires fixed batch size
+		#could maintain two layers (one for action and one for training)
+		#and copy weights between, or could just not use stateful and
+		#manually keep track of state.
 		self.lstm_stateful = LSTM(256,stateful=True,name='stateful_lstm',trainable=False)
 		self.lstm = LSTM(256,return_sequences=True,name='training_lstm')
 
@@ -202,5 +208,11 @@ class ReconChessNet(Model):
 		value = self.get_v(lstm).numpy()[:,0]
 
 		return actions,probs,value
+
+	def sample_final_v(self,x):
+		lstm = self.get_lstm(x)
+		v = self.get_v(lstm)
+
+		return v.numpy()[:,0]
 
 

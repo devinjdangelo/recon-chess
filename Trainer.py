@@ -92,12 +92,17 @@ class ReconTrainer:
         white.handle_game_end(winner, win_reason, game_history)
         black.handle_game_end(winner, win_reason, game_history)
 
+        if turn//2==maximum_moves and winner is None:
+            terminal_state_value = self.train_agent.get_terminal_v()[0]
+        else:
+            terminal_state_value = None
+        
 
         memory = [obs_memory,mask_memory,action_memory,rewards]
         newsize = [turn,turn//2,turn,turn]
         memory = [np.resize(mem,(newsize[i],)+mem.shape[1:]) for i,mem in enumerate(memory)]
 
-        return memory,winner,win_reason
+        return memory,winner,win_reason,terminal_state_value
 
     def collect_exp(self,n_games,loop,score):
         game_memory = [[],[],[],[],[]]
@@ -105,9 +110,9 @@ class ReconTrainer:
         for game in range(n_games):
             color = random.choice([True,False])
             if color:
-                outmem,winner,win_reason = self.play_game(self.train_agent,self.opponent_agent)
+                outmem,winner,win_reason,terminal_state_value = self.play_game(self.train_agent,self.opponent_agent)
             else:
-                outmem,winner,win_reason = self.play_game(self.opponent_agent,self.train_agent)
+                outmem,winner,win_reason,terminal_state_value = self.play_game(self.opponent_agent,self.train_agent)
 
             printcolor = 'white' if color else 'black'
             moves = outmem[0].shape[0]//2
@@ -116,18 +121,21 @@ class ReconTrainer:
                 score = 0.995*score
                 print('loop ',loop,' Game ',game,' No winner after',moves,' moves',' current score: ','{:.5f}'.format(score))
                 performance_memory.append((loop,game,printcolor,moves,0,None,score))
+                bootstrap = True
             elif winner==color:
                 outmem[3][-1] += 1
                 score = 0.995*score + 0.005*1
                 performance_memory.append((loop,game,printcolor,moves,1,win_reason,score))
                 print('loop ',loop,' Game ',game,' Trainbot wins as ',printcolor,' in',moves,' moves by ',win_reason,' current score: ','{:.5f}'.format(score))
+                bootstrap = False
             elif winner!=color:
                 outmem[3][-1] -= 1
                 score = 0.995*score + 0.005*(-1)
                 print('loop ',loop,' Game ',game,' Trainbot loses as ',printcolor,' in',moves,' moves by ',win_reason,' current score: ','{:.5f}'.format(score))
                 performance_memory.append((loop,game,printcolor,moves,-1,None,score))
+                bootstrap = False
 
-            outmem.append(self.GAE(outmem[3],outmem[2][:,-1]))
+            outmem.append(self.GAE(outmem[3],outmem[2][:,-1],bootstrap=bootstrap,terminal_state_value=terminal_state_value))
             [mem.append(outmem[i]) for i,mem in enumerate(game_memory)]
 
 
@@ -187,19 +195,23 @@ class ReconTrainer:
 
 
     @staticmethod
-    def GAE(rewards,values,g=0.99,l=0.95,bootstrap=False):
+    def GAE(rewards,values,g=0.99,l=0.95,bootstrap=False,terminal_state_value=None):
     #rewards: length timesteps list of rewards recieved from environment
-    #values: length timesteps list (timesteps +1 if bootstrap) of state values
+    #values: length timesteps list of state values
     #g: gamma discount factor
     #l: lambda discount factor
+    #terminal_state_value: network value of terminal state if episode cut off before true end
     #bootstrap: if true, bootstrap estimated return after episode timeout (approximates continuing rather than episodic version of problem)
         tmax = len(rewards)
         lastadv = 0
         GAE = [0] * (tmax)
         for t in reversed(range(tmax)):
-            if t == tmax - 1 and bootstrap==False:
+            if t == tmax - 1 and not bootstrap:
                 delta = rewards[t] - values[t]
                 GAE[t] = lastadv = delta 
+            elif t==tmax-1 and bootstrap:
+                delta = rewards[t] + g * terminal_state_value - values[t]
+                GAE[t] = lastadv = delta + g*l*lastadv
             else:
                 delta = rewards[t] + g * values[t+1] - values[t]
                 GAE[t] = lastadv = delta + g*l*lastadv

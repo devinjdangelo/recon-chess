@@ -179,6 +179,9 @@ class ReconBot(Player):
 
         self.net.lstm_stateful.reset_states()
 
+    def get_terminal_v(self):
+        return self.net.sample_final_v([self.obs])
+
 
     def init_net(self):
         #calls the network on dummy data to initialize it and allow for save
