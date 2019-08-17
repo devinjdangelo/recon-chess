@@ -57,8 +57,8 @@ class ReconBot(Player):
         return square//8,square%8
 
     def _piece_idx_at_col_row(self,col,row):
-        maxidx = np.argmax(self.obs[:12,col,row])
-        if self.obs[maxidx,col,row]>0:
+        maxidx = np.argmax(self.obs[rank,:12,col,row])
+        if self.obs[rank,maxidx,col,row]>0:
             return maxidx
         else:
             return None
@@ -174,7 +174,6 @@ class ReconBot(Player):
             self.action_memory[:,1] = prob
             self.action_memory[:,2] = value
         comm.Barrier()
-        action = self.action_memory[rank,0]
         action = np.unravel_index(int(action),(8,8,8,8))
         action_idx = col_row_moves.index(action)
         return move_actions[action_idx]

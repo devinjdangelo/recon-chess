@@ -32,6 +32,7 @@ class ReconTrainer:
         self.wins = SharedArray((1,),dtype=np.float32)
         self.losses = SharedArray((1,),dtype=np.float32)
         self.ties = SharedArray((1,),dtype=np.float32)
+        self.train_color = SharedArray((1,),dtype=np.int32)
 
         self.score_smoothing = score_smoothing
 
@@ -90,6 +91,18 @@ class ReconTrainer:
             bootstrap = np.ones((workers,n_moves),dtype=np.int32)
             split_idx = []
 
+            train_as_white = random.choice([True,False])
+            if train_as_white:
+                self.train_color = 1
+            else:
+                self.train_color = 0
+
+        comm.Barrier()
+        if self.train_color == 1:
+            train_as_white = True
+        else:
+            train_as_white = False
+
         obs_memory = np.zeros(shape=(workers,n_moves*2,13,8,8),dtype=np.float32)
         mask_memory = np.zeros(shape=(workers,n_moves,4096),dtype=np.int32)
         #action,prob,value
@@ -98,17 +111,18 @@ class ReconTrainer:
 
         total_turns = 0
 
+        
+        if train_as_white:
+            white = self.train_agent
+            black = self.opponent_agent
+        else:
+            black = self.train_agent
+            white = self.opponent_agent
+
         while total_turns//2<n_moves:
 
             game = LocalGame()
 
-            train_as_white = random.choice([True,False])
-            if train_as_white:
-                white = self.train_agent
-                black = self.opponent_agent
-            else:
-                black = self.train_agent
-                white = self.opponent_agent
 
             white_name = white.__class__.__name__
             black_name = black.__class__.__name__
