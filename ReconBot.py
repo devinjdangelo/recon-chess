@@ -29,7 +29,7 @@ class ReconBot(Player):
         self.verbose = verbose
         self.obs = SharedArray((workers,13,8,8),dtype=np.int32)
         self.action_memory = SharedArray((workers,3),dtype=np.float32)
-        self.mask = SharedArray((workers,4096,np.int32))
+        self.mask = SharedArray((workers,4096),np.int32)
 
     @staticmethod
     def _fen_to_obs(fen):
