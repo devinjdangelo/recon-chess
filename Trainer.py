@@ -41,9 +41,6 @@ class ReconTrainer:
             self.losses = 0
             self.ties =0
 
-            self.train_agent.init_net()
-            self.opponent_agent.init_net()
-
             self.train_net = ReconChessNet('train')
             self.train_agent = ReconBot(net=self.train_net,verbose=False)
 
@@ -51,6 +48,8 @@ class ReconTrainer:
             self.opponent_agent = ReconBot(net=self.opponent_net,verbose=False)
 
             if not load_model:
+                self.train_agent.init_net()
+                self.opponent_agent.init_net()
                 self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
                 self.opponent_net.set_weights(self.train_net.get_weights())            
 
@@ -71,6 +70,11 @@ class ReconTrainer:
             with open(self.net_stat_path,'w',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
                     wr.writerows([('Batch Size','Avg Game Len','Loss','Policy Loss','Entropy','Value Loss','Grad Norm')])
+
+        else:
+            #off rank 0, give full agents but with no network
+            self.train_agent = ReconBot(verbose=False)
+            self.opponent_agent = ReconBot(verbose=False)
 
 
     def play_n_moves(self,n_moves):
@@ -233,7 +237,7 @@ class ReconTrainer:
         loop = 1
 
         while True:
-            mem = self.collect_exp(n_rounds,n_moves)
+            mem = self.collect_exp(n_rounds,n_moves,loop)
 
             if rank==0:
                 samples_available = list(range(len(mem[0])))

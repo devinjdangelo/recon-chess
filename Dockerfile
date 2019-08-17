@@ -1,4 +1,4 @@
-FROM tensorflow/tensorflow:2.0.0-beta1-gpu-py3
+FROM tensorflow/tensorflow:2.0.0b1-gpu-py3
 
 
 
