@@ -43,10 +43,10 @@ class ReconTrainer:
             self.ties =0
 
             self.train_net = ReconChessNet('train')
-            self.train_agent = ReconBot(net=self.train_net,verbose=False)
+            self.train_agent = ReconBot(net=self.train_net,verbose=False,name='train')
 
             self.opponent_net = ReconChessNet('opponent')
-            self.opponent_agent = ReconBot(net=self.opponent_net,verbose=False)
+            self.opponent_agent = ReconBot(net=self.opponent_net,verbose=False,name='opponent')
 
             if not load_model:
                 self.train_agent.init_net()
@@ -74,8 +74,8 @@ class ReconTrainer:
 
         else:
             #off rank 0, give full agents but with no network
-            self.train_agent = ReconBot(verbose=False)
-            self.opponent_agent = ReconBot(verbose=False)
+            self.train_agent = ReconBot(verbose=False,name='train')
+            self.opponent_agent = ReconBot(verbose=False,name='opponent')
 
 
     def play_n_moves(self,n_moves):
@@ -93,9 +93,9 @@ class ReconTrainer:
 
             train_as_white = random.choice([True,False])
             if train_as_white:
-                self.train_color = 1
+                self.train_color[:] = 1
             else:
-                self.train_color = 0
+                self.train_color[:] = 0
 
         comm.Barrier()
         if self.train_color == 1:
@@ -118,6 +118,7 @@ class ReconTrainer:
         else:
             black = self.train_agent
             white = self.opponent_agent
+
 
         while total_turns//2<n_moves:
 
@@ -142,27 +143,32 @@ class ReconTrainer:
                 player = players[game.turn]
                 sense_actions = game.sense_actions()
                 move_actions = game.move_actions()
-
+                comm.Barrier()
                 notify_opponent_move_results(game, player)
+                comm.Barrier()
 
                 if player is self.train_agent:
                     if rank==0:
                         obs_memory[:,total_turns,:,:,:] = np.copy(self.train_agent.obs)
                     comm.Barrier()
                     play_sense(game, player, sense_actions, move_actions)
+                    comm.Barrier()
                     if rank==0:
                         action_memory[:,total_turns,:] = np.copy(self.train_agent.action_memory)
                         rewards[:,total_turns] = [0]*workers
                     comm.Barrier()
                     total_turns += 1
                 else:
+                    comm.Barrier()
                     play_sense(game, player, sense_actions, move_actions)
+                    comm.Barrier()
 
                 if player is self.train_agent:
                     if rank==0:
                         obs_memory[:,total_turns,:,:,:] = np.copy(self.train_agent.obs)
                     comm.Barrier()
                     play_move(game, player, move_actions)
+                    comm.Barrier()
                     if rank==0:
                         mask_memory[:,total_turns//2,:] = np.copy(self.train_agent.mask)
                         action_memory[:,total_turns,:] = np.copy(self.train_agent.action_memory)
@@ -171,7 +177,9 @@ class ReconTrainer:
                     
                     total_turns += 1
                 else:
+                    comm.Barrier()
                     play_move(game, player, move_actions)
+                    comm.Barrier()
 
 
             game.end()

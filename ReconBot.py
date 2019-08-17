@@ -15,7 +15,8 @@ PieceDict = {'P':0,'N':1,'B':2,'R':3,'Q':4,'K':5,
         'p':6,'n':7,'b':8,'r':9,'q':10,'k':11}
 
 class ReconBot(Player):
-    def __init__(self,net=None,verbose=True):
+    def __init__(self,net=None,verbose=True,name=None):
+        self.name = name
         self.board = None
         self.color = None
         if rank==0:
@@ -141,6 +142,7 @@ class ReconBot(Player):
         comm.Barrier()
         action = self.action_memory[rank,0]
         action_to_send = action + 9 + 2*(action//6)
+        print('sense action: ',action,action_to_send,' agent: ',self.name,' color: ',self.color)
         
         return int(action_to_send)
 
@@ -174,8 +176,10 @@ class ReconBot(Player):
             self.action_memory[:,1] = prob
             self.action_memory[:,2] = value
         comm.Barrier()
-        action = np.unravel_index(int(action),(8,8,8,8))
-        action_idx = col_row_moves.index(action)
+        action = self.action_memory[rank,0]
+        action_unravel = np.unravel_index(int(action),(8,8,8,8))
+        print('move action: ',action,action_unravel,' agent: ',self.name,' color: ',self.color)
+        action_idx = col_row_moves.index(action_unravel)
         return move_actions[action_idx]
 
     def handle_move_result(self, requested_move: Optional[chess.Move], taken_move: Optional[chess.Move],
