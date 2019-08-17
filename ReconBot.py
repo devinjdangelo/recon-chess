@@ -165,7 +165,7 @@ class ReconBot(Player):
             col_t,row_t = self._square_to_col_row(move.to_square)
             col_row_moves.append((col_f,row_f,col_t,row_t))
             mask[:,col_f,row_f,col_t,row_t] = 1
-        mask = np.reshape(self.mask,(1,8*8*8*8))
+        mask = np.reshape(mask,(1,8*8*8*8))
         self.mask[rank,:] = mask
         comm.Barrier()
         if rank==0:
@@ -175,7 +175,7 @@ class ReconBot(Player):
             self.action_memory[:,2] = value
         comm.Barrier()
         action = self.action_memory[rank,0]
-        action = np.unravel_index(action[rank],(8,8,8,8))
+        action = np.unravel_index(int(action),(8,8,8,8))
         action_idx = col_row_moves.index(action)
         return move_actions[action_idx]
 
@@ -225,6 +225,6 @@ class ReconBot(Player):
 
         loss = self.net.loss([[obs,obs],[obs,obs]],mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip)
 
-        out = self.net.sample_pir([obs])
+        out = self.net.sample_pir([obs]*workers)
 
         self.net.lstm_stateful.reset_states()

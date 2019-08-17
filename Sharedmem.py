@@ -16,7 +16,6 @@ def SharedArray(shape,dtype=np.float32):
 		nbytes = reduce(mul,shape,1)*bytesize
 	except TypeError:
 		nbytes = shape*bytesize
-	print(nbytes)
 	#nbytes /= workers
 	if rank==0:
 		win = MPI.Win.Allocate_shared(nbytes, bytesize, comm=comm) 
