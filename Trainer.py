@@ -144,7 +144,7 @@ class ReconTrainer:
 
                 comm.Barrier()
                 if rank==0:
-                    split_idx += [i*total_turns for i in range(workers) if self.splits[i]==1]
+                    split_idx += [(i+1)*total_turns for i in range(workers) if self.splits[i]==1]
                     self.splits[:] = [0]*workers
 
                 player = players[game.turn]
@@ -229,26 +229,30 @@ class ReconTrainer:
 
             
                 if rank==0:
+                    print(action_memory.shape)
                     memory = [obs_memory,mask_memory,action_memory,rewards]
                     memory = [np.reshape(m,(-1,)+m.shape[2:]) for m in memory]
+                    print(memory[2].shape)
+                    split_idx += [(i+1)*total_turns for i in range(workers-1)]
                     split_idx.sort()
+                    print(split_idx)
                     memory = [np.split(m,split_idx,axis=0) for m in memory]
+                    print([g.shape for g in memory[2]])
 
                     print(bootstrap)
                     bootstrap = np.split(np.reshape(bootstrap,(-1,)),split_idx)
                     print(bootstrap)
                     gae = []
                     for i in range(len(memory[0])):
+                        print(bootstrap[i])
                         should_bootstrap = bootstrap[i][-1]==1
-                        print(should_bootstrap)
                         if should_bootstrap:
-                            print(bootstrap[i])
                             tv = terminal_state_value[[bootstrap[i][-2]]]
                         gae += self.GAE(memory[3][i],memory[2][i][:,-1],bootstrap=bootstrap,terminal_state_value=tv)
 
                     memory.append(gae)
                 else:
-                    memory = [[],[],[],[],[],[]]
+                    memory = [[],[],[],[],[]]
 
 
 
@@ -256,7 +260,7 @@ class ReconTrainer:
         return memory
 
     def collect_exp(self,n_rounds,n_moves,loop):
-        game_memory = [[],[],[],[],[],[]]
+        game_memory = [[],[],[],[],[]]
         for game in range(n_rounds):
             outmem = self.play_n_moves(n_moves)
             if rank==0:

@@ -143,7 +143,7 @@ class ReconBot(Player):
         comm.Barrier()
         action = self.action_memory[rank,0]
         action_to_send = action + 9 + 2*(action//6)
-        print('sense action: ',action,action_to_send,' agent: ',self.name,' color: ',self.color)
+        #print('sense action: ',action,action_to_send,' agent: ',self.name,' color: ',self.color)
         
         return int(action_to_send)
 
@@ -179,7 +179,7 @@ class ReconBot(Player):
         comm.Barrier()
         action = self.action_memory[rank,0]
         action_unravel = np.unravel_index(int(action),(8,8,8,8))
-        print('move action: ',action,action_unravel,' agent: ',self.name,' color: ',self.color)
+        #print('move action: ',action,action_unravel,' agent: ',self.name,' color: ',self.color)
         action_idx = col_row_moves.index(action_unravel)
         return move_actions[action_idx]
 
