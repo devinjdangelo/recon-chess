@@ -32,6 +32,7 @@ class ReconBot(Player):
         self.action_memory = SharedArray((workers,3),dtype=np.float32)
         self.mask = SharedArray((workers,4096),np.int32)
 
+
     @staticmethod
     def _fen_to_obs(fen):
         obs = np.zeros(shape=(13,8,8),dtype=np.int32)
