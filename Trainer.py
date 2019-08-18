@@ -28,19 +28,19 @@ class ReconTrainer:
         self.bootstrap = SharedArray((workers,),dtype=np.int32)
         self.splits = SharedArray((workers,),dtype=np.int32)
 
-        self.score = SharedArray((1,),dtype=np.float32)
-        self.wins = SharedArray((1,),dtype=np.float32)
-        self.losses = SharedArray((1,),dtype=np.float32)
-        self.ties = SharedArray((1,),dtype=np.float32)
+        self.score = SharedArray((workers,),dtype=np.float32)
+        self.wins = SharedArray((workers,),dtype=np.float32)
+        self.losses = SharedArray((workers,),dtype=np.float32)
+        self.ties = SharedArray((workers,),dtype=np.float32)
         self.train_color = SharedArray((1,),dtype=np.int32)
 
         self.score_smoothing = score_smoothing
 
         if rank==0:
-            self.score = score
-            self.wins = 0
-            self.losses = 0
-            self.ties =0
+            self.score[:] = [score]*workers
+            self.wins[:] = [0]*workers
+            self.losses[:] = [0]*workers
+            self.ties[:] = [0]*workers
 
             self.train_net = ReconChessNet('train')
             self.train_agent = ReconBot(net=self.train_net,verbose=False,name='train')
@@ -88,7 +88,7 @@ class ReconTrainer:
         if rank==0:
             self.splits = np.zeros(self.splits.shape,dtype=np.int32)
             self.bootstrap = np.ones(self.bootstrap.shape,dtype=np.int32)
-            bootstrap = np.ones((workers,n_moves),dtype=np.int32)
+            bootstrap = np.ones((workers,n_moves*2),dtype=np.int32)
             split_idx = []
 
             train_as_white = random.choice([True,False])
@@ -206,16 +206,16 @@ class ReconTrainer:
                 if (winner and train_as_white) or (not winner and not train_as_white):
                     rewards[rank,total_turns-1] += 1
                     self.splits[rank] = 1
-                    self.score = 1*(1-self.score_smoothing)+ self.score * self.score_smoothing
-                    self.wins += 1
+                    self.score[rank] = 1*(1-self.score_smoothing)+ self.score[rank] * self.score_smoothing
+                    self.wins[rank] += 1
                 elif (not winner and train_as_white) or (winner and not train_as_white):
                     rewards[rank,total_turns-1] -= 1
                     self.splits[rank] = 1
-                    self.score = -1*(1-self.score_smoothing)+ self.score * self.score_smoothing
-                    self.losses += 1
+                    self.score[rank] = -1*(1-self.score_smoothing)+ self.score[rank] * self.score_smoothing
+                    self.losses[rank] += 1
             else:
-                self.score = self.score * self.score_smoothing
-                self.ties += 1
+                self.score[rank] = self.score[rank] * self.score_smoothing
+                self.ties[rank] += 1
 
             if total_turns == n_moves*2:
                 if rank==0:
@@ -229,26 +229,22 @@ class ReconTrainer:
 
             
                 if rank==0:
-                    print(action_memory.shape)
                     memory = [obs_memory,mask_memory,action_memory,rewards]
                     memory = [np.reshape(m,(-1,)+m.shape[2:]) for m in memory]
-                    print(memory[2].shape)
                     split_idx += [(i+1)*total_turns for i in range(workers-1)]
                     split_idx.sort()
-                    print(split_idx)
-                    memory = [np.split(m,split_idx,axis=0) for m in memory]
-                    print([g.shape for g in memory[2]])
+                    splits_by_mem = [split_idx,[idx//2 for idx in split_idx],split_idx,split_idx]
+                    memory = [np.split(m,splits_by_mem[i],axis=0) for i,m in enumerate(memory)]
 
-                    print(bootstrap)
                     bootstrap = np.split(np.reshape(bootstrap,(-1,)),split_idx)
-                    print(bootstrap)
                     gae = []
                     for i in range(len(memory[0])):
-                        print(bootstrap[i])
                         should_bootstrap = bootstrap[i][-1]==1
                         if should_bootstrap:
                             tv = terminal_state_value[[bootstrap[i][-2]]]
-                        gae += self.GAE(memory[3][i],memory[2][i][:,-1],bootstrap=bootstrap,terminal_state_value=tv)
+                        else:
+                            tv = None
+                        gae += self.GAE(memory[3][i],memory[2][i][:,-1],bootstrap=should_bootstrap,terminal_state_value=tv)
 
                     memory.append(gae)
                 else:
@@ -265,15 +261,16 @@ class ReconTrainer:
             outmem = self.play_n_moves(n_moves)
             if rank==0:
                 ngames = len(outmem[0])
-                print(ngames,' Games Played ',self.wins, ' Wins ',self.losses,' losses ',self.ties,' ties ',self.score, ' score')
+                print(ngames,' Games Played ',np.sum(self.wins), ' Wins ',np.sum(self.losses),' losses ',
+                    np.sum(self.ties),' ties ',np.sum(self.score), ' score')
 
                 with open(self.game_stat_path,'a',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
-                    wr.writerow([loop,game,ngames,self.wins,self.losses,self.ties,self.score])
+                    wr.writerow([loop,game,ngames,np.sum(self.wins),np.sum(self.losses),np.sum(self.ties),np.mean(self.score)])
 
-                self.wins = 0
-                self.losses = 0
-                self.ties = 0
+                self.wins[:] = [0]*workers
+                self.losses[:] = [0]*workers
+                self.ties[:] = [0]*workers
 
                 game_memory = [game_memory[i]+outmem[i] for i in range(len(game_memory))]
 
