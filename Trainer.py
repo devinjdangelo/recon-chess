@@ -119,10 +119,13 @@ class ReconTrainer:
             black = self.train_agent
             white = self.opponent_agent
 
-        need_to_skip_turn = False
-        need_to_drop_obs = False
+        need_to_switch_colors = False
 
         while total_turns//2<n_moves:
+
+            if need_to_switch_colors:
+                white,black = black,white
+                need_to_switch_colors = False
 
             game = LocalGame()
 
@@ -137,17 +140,7 @@ class ReconTrainer:
             players = [black, white]
 
             while not game.is_over() and total_turns//2<n_moves:
-                if need_to_skip_turn:
-                    if need_to_drop_obs:
-                        #store action as -1 to indicate we need to drop this garbage obs
-                        self.train_agent.action_memory[rank,0] = -1
-                    #help other ranks pass all 12 barriers in one loop
-                    print('rank ',rank,' is waiting. It is ',game.turn, ' turn.')
-                    total_turns += 2
-                    for i in range(12):
-                        comm.Barrier()
-                    need_to_skip_turn = False
-                    need_to_drop_obs = False
+                    
 
                 comm.Barrier()
                 if rank==0:
@@ -208,50 +201,55 @@ class ReconTrainer:
             black.handle_game_end(winner, win_reason, game_history)
 
             if winner is not None:
-                #if white wins, need to skip a move cycle to maintain sync with other ranks
-                need_to_skip_turn = winner
+                #if white wins, need to switch 
+                need_to_switch_colors = winner
                 if (winner and train_as_white) or (not winner and not train_as_white):
-                    #if win as white, need to wait for other games to play black move before proceeding
-                    rewards[rank,total_turns] += 1
+                    rewards[rank,total_turns-1] += 1
                     self.splits[rank] = 1
                     self.score = 1*(1-self.score_smoothing)+ self.score * self.score_smoothing
                     self.wins += 1
                 elif (not winner and train_as_white) or (winner and not train_as_white):
-                    rewards[rank,total_turns] -= 1
+                    rewards[rank,total_turns-1] -= 1
                     self.splits[rank] = 1
                     self.score = -1*(1-self.score_smoothing)+ self.score * self.score_smoothing
                     self.losses += 1
-                    #if lose as black, will store one garbage time step that needs to be dropped out
-                    need_to_drop_obs = (winner and not train_as_white)
             else:
                 self.score = self.score * self.score_smoothing
                 self.ties += 1
 
-            if total_turns == n_moves:
+            if total_turns == n_moves*2:
                 if rank==0:
                     terminal_state_value = self.train_agent.get_terminal_v()
                 if winner is not None:
                     self.bootstrap[rank] = 0
                 comm.Barrier()
-                bootstrap[:,-1] = np.copy(self.bootstrap)
-                bootstrap[:,-2] = list(range(workers))
+                if rank == 0:
+                    bootstrap[:,-1] = np.copy(self.bootstrap)
+                    bootstrap[:,-2] = list(range(workers))
 
             
                 if rank==0:
                     memory = [obs_memory,mask_memory,action_memory,rewards]
-                    memory = [np.reshape(m,(workers*n_moves,)+m.shape[2:]) for m in memory]
-                    split_idx = split_idx.sorted()
+                    memory = [np.reshape(m,(-1,)+m.shape[2:]) for m in memory]
+                    split_idx.sort()
                     memory = [np.split(m,split_idx,axis=0) for m in memory]
 
+                    print(bootstrap)
                     bootstrap = np.split(np.reshape(bootstrap,(-1,)),split_idx)
+                    print(bootstrap)
                     gae = []
                     for i in range(len(memory[0])):
-                        bootstrap = bootstrap[i][-1]==1
-                        if bootstrap:
+                        should_bootstrap = bootstrap[i][-1]==1
+                        print(should_bootstrap)
+                        if should_bootstrap:
+                            print(bootstrap[i])
                             tv = terminal_state_value[[bootstrap[i][-2]]]
                         gae += self.GAE(memory[3][i],memory[2][i][:,-1],bootstrap=bootstrap,terminal_state_value=tv)
 
                     memory.append(gae)
+                else:
+                    memory = [[],[],[],[],[],[]]
+
 
 
 
