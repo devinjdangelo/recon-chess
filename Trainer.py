@@ -238,15 +238,18 @@ class ReconTrainer:
 
                     bootstrap = np.split(np.reshape(bootstrap,(-1,)),split_idx)
                     gae = []
+                    print(len(memory[0]))
                     for i in range(len(memory[0])):
                         should_bootstrap = bootstrap[i][-1]==1
                         if should_bootstrap:
                             tv = terminal_state_value[[bootstrap[i][-2]]]
                         else:
                             tv = None
-                        gae += self.GAE(memory[3][i],memory[2][i][:,-1],bootstrap=should_bootstrap,terminal_state_value=tv)
+                        gae.append(self.GAE(memory[3][i],memory[2][i][:,-1],bootstrap=should_bootstrap,terminal_state_value=tv))
 
                     memory.append(gae)
+
+                    print([[len(g) for g in m] for m in memory])
                 else:
                     memory = [[],[],[],[],[]]
 
@@ -286,6 +289,8 @@ class ReconTrainer:
                 samples_available = list(range(len(mem[0])))
                 batch_size = len(samples_available)//2
                 n_batches = len(samples_available)//batch_size*epochs
+
+                print(samples_available,batch_size,n_batches)
 
                 for i in range(n_batches):
                     sample_idx = np.random.choice(samples_available,replace=False,size=batch_size)
