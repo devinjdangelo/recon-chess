@@ -70,7 +70,7 @@ class ReconTrainer:
 
             with open(self.net_stat_path,'w',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
-                    wr.writerows([('Batch Size','Avg Game Len','Loss','Policy Loss','Entropy','Value Loss','Grad Norm')])
+                    wr.writerows([('iter','Batch Size','Avg Game Len','Loss','Policy Loss','Entropy','Value Loss','Grad Norm')])
 
         else:
             #off rank 0, give full agents but with no network
@@ -263,8 +263,8 @@ class ReconTrainer:
             outmem = self.play_n_moves(n_moves)
             if rank==0:
                 ngames = len(outmem[0])
-                print(ngames,' Games Played ',np.sum(self.wins), ' Wins ',np.sum(self.losses),' losses ',
-                    np.sum(self.ties),' ties ',np.sum(self.score), ' score')
+                print('loop: ', loop,' Games Played: ',ngames,' Wins: ',np.sum(self.wins), ' losses: ',np.sum(self.losses),
+                    ' ties: ',np.sum(self.ties),' score: ',np.sum(self.score))
 
                 with open(self.game_stat_path,'a',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
@@ -280,12 +280,14 @@ class ReconTrainer:
 
     def train(self,n_rounds,n_moves,epochs,equalize_weights_every_n,save_every_n):
         loop = 1
-
+        total_steps_gathered = 0
+        start_time = time.time()
         while True:
             mem = self.collect_exp(n_rounds,n_moves,loop)
 
             if rank==0:
                 samples_available = list(range(len(mem[0])))
+                total_steps_gathered += sum([len(m) for m in mem])
                 batch_size = len(samples_available)//2
                 n_batches = len(samples_available)//batch_size*epochs
 
@@ -299,11 +301,11 @@ class ReconTrainer:
                         
                     batch = [[m[idx] for idx in sample_idx] for m in mem]
                     loss,pg_loss,entropy,vf_loss,g_n = self.send_batch(batch)
-                    print('batch_size',batch_size,'Loss: ',loss,' Policy Loss: ',pg_loss,' Entropy: ',entropy,' Value Loss: ',vf_loss,' Grad Norm: ',g_n)
+                    print('iter: ',i, 'batch_size: ',batch_size,' Loss: ',loss,' Policy Loss: ',pg_loss,' Entropy: ',entropy,' Value Loss: ',vf_loss,' Grad Norm: ',g_n)
 
                     with open(self.net_stat_path,'a',newline='', encoding='utf-8') as output:
                         wr = csv.writer(output)
-                        wr.writerows([(loss,pg_loss,entropy,vf_loss,g_n)])
+                        wr.writerows([(i,loss,pg_loss,entropy,vf_loss,g_n)])
 
                 self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
 
@@ -313,6 +315,9 @@ class ReconTrainer:
                 if loop%save_every_n==0:
                     self.train_net.save_weights(self.model_path)
 
+                steps_per_second = total_steps_gathered/(time.time()-start_time)
+                msteps_per_day = steps_per_second*60*60*24/1e6
+                print('loop: ',loop,' steps per second: ','{0:.2f}'.format(steps_per_second),' million steps per day: ','{0:.2f}'.format(msteps_per_day))
             loop += 1
             comm.Barrier()
 
