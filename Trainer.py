@@ -126,6 +126,7 @@ class ReconTrainer:
             if need_to_switch_colors:
                 white,black = black,white
                 need_to_switch_colors = False
+                train_as_white = not train_as_white
 
             game = LocalGame()
 
