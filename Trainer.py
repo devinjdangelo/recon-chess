@@ -70,7 +70,7 @@ class ReconTrainer:
 
             with open(self.net_stat_path,'w',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
-                    wr.writerows([('iter','Batch Size','Avg Game Len','Loss','Policy Loss','Entropy','Value Loss','Grad Norm')])
+                    wr.writerows([('iter','Loss','Policy Loss','Entropy','Value Loss','Grad Norm')])
 
         else:
             #off rank 0, give full agents but with no network
@@ -78,7 +78,7 @@ class ReconTrainer:
             self.opponent_agent = ReconBot(verbose=False,name='opponent')
 
 
-    def play_n_moves(self,n_moves):
+    def play_n_moves(self,n_moves,max_turns_per_game):
         #adapted from reconchess.play.play_local_game() 
         #gathers n_moves of experience, restarting the game as many times as needed
         #white -> white player agent
@@ -139,14 +139,16 @@ class ReconTrainer:
             game.start()
 
             players = [black, white]
-
-            while not game.is_over() and total_turns//2<n_moves:
+            game_turns = 0
+            while not game.is_over() and total_turns//2<n_moves and game_turns//2<=max_turns_per_game:
                     
 
                 comm.Barrier()
                 if rank==0:
                     split_idx += [i*n_moves*2+total_turns for i in range(workers) if self.splits[i]==1]
                     self.splits[:] = [0]*workers
+
+                #print('rank: ',rank, ' global turn: ',total_turns,' game_turn: ',game_turns)
 
                 player = players[game.turn]
                 sense_actions = game.sense_actions()
@@ -167,6 +169,7 @@ class ReconTrainer:
                         rewards[:,total_turns] = [0]*workers
                     comm.Barrier()
                     total_turns += 1
+                    game_turns += 1
                 else:
                     comm.Barrier()
                     play_sense(game, player, sense_actions, move_actions)
@@ -186,6 +189,7 @@ class ReconTrainer:
                     comm.Barrier()
                     
                     total_turns += 1
+                    game_turns += 1
                 else:
                     comm.Barrier()
                     play_move(game, player, move_actions)
@@ -200,6 +204,12 @@ class ReconTrainer:
 
             white.handle_game_end(winner, win_reason, game_history)
             black.handle_game_end(winner, win_reason, game_history)
+
+            if game_turns//2>max_turns_per_game and total_turns < n_moves*2:
+                game_turns = 0
+                self.splits[rank] = 1
+                if player is white:
+                    need_to_switch_colors = True
 
             if winner is not None:
                 #if white wins, need to switch 
@@ -257,14 +267,14 @@ class ReconTrainer:
 
         return memory
 
-    def collect_exp(self,n_rounds,n_moves,loop):
+    def collect_exp(self,n_rounds,n_moves,max_turns_per_game,loop):
         game_memory = [[],[],[],[],[]]
         for game in range(n_rounds):
-            outmem = self.play_n_moves(n_moves)
+            outmem = self.play_n_moves(n_moves,max_turns_per_game)
             if rank==0:
                 ngames = len(outmem[0])
                 print('loop: ', loop,' Games Played: ',ngames,' Wins: ',np.sum(self.wins), ' losses: ',np.sum(self.losses),
-                    ' ties: ',np.sum(self.ties),' score: ',np.sum(self.score))
+                    ' ties: ',np.sum(self.ties),' score: ',np.mean(self.score))
 
                 with open(self.game_stat_path,'a',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
@@ -278,16 +288,16 @@ class ReconTrainer:
 
         return game_memory
 
-    def train(self,n_rounds,n_moves,epochs,equalize_weights_every_n,save_every_n):
+    def train(self,n_rounds,n_moves,epochs,equalize_weights_every_n,save_every_n,max_turns_per_game):
         loop = 1
         total_steps_gathered = 0
         start_time = time.time()
         while True:
-            mem = self.collect_exp(n_rounds,n_moves,loop)
+            mem = self.collect_exp(n_rounds,n_moves,max_turns_per_game,loop)
 
             if rank==0:
                 samples_available = list(range(len(mem[0])))
-                total_steps_gathered += sum([len(m) for m in mem])
+                total_steps_gathered += sum([len(m) for m in mem[0]])
                 batch_size = len(samples_available)//2
                 n_batches = len(samples_available)//batch_size*epochs
 
