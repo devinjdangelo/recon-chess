@@ -242,14 +242,13 @@ class ReconTrainer:
                     for i in range(len(memory[0])):
                         should_bootstrap = bootstrap[i][-1]==1
                         if should_bootstrap:
-                            tv = terminal_state_value[[bootstrap[i][-2]]]
+                            tv = terminal_state_value[[bootstrap[i][-2]]][0]
                         else:
                             tv = None
                         gae.append(self.GAE(memory[3][i],memory[2][i][:,-1],bootstrap=should_bootstrap,terminal_state_value=tv))
 
                     memory.append(gae)
 
-                    print([[len(g) for g in m] for m in memory])
                 else:
                     memory = [[],[],[],[],[]]
 
@@ -290,13 +289,13 @@ class ReconTrainer:
                 batch_size = len(samples_available)//2
                 n_batches = len(samples_available)//batch_size*epochs
 
-                print(samples_available,batch_size,n_batches)
+                #print(len(samples_available),batch_size,n_batches)
 
                 for i in range(n_batches):
                     sample_idx = np.random.choice(samples_available,replace=False,size=batch_size)
                     samples_available = [idx for idx in samples_available if idx not in sample_idx]
                     if len(samples_available)<batch_size:
-                        samples_available = list(range(update_n))
+                        samples_available = list(range(len(mem[0])))
                         
                     batch = [[m[idx] for idx in sample_idx] for m in mem]
                     loss,pg_loss,entropy,vf_loss,g_n = self.send_batch(batch)
@@ -325,12 +324,14 @@ class ReconTrainer:
         old_v_pred = [b[:,2] for b in batch[2]]
         gae = batch[4]
 
+        returns = [old_v_pred[i]+gae[i] for i in list(range(len(gae)))]
+
         gae_flat = [i for episode in deepcopy(gae) for i in episode]
         gae_u,gae_o = np.mean(gae_flat),np.std(gae_flat)+1e-8
 
         gae = [(g-gae_u)/gae_o for g in gae]
 
-        returns = [old_v_pred[i]+gae[i] for i in list(range(len(gae)))]
+        
         clip = 0.2
 
         return self.train_net.update(inputs,mask,lg_prob_old,a_taken,gae,old_v_pred,returns,clip)

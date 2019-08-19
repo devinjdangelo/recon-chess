@@ -18,7 +18,8 @@ net_stat_path = 'Network Stats 1.csv'
 
 trainer = ReconTrainer(model_path,load_model,opponent_initial_model_path,score,score_smoothing,game_stat_path,net_stat_path)
 
-n_rounds = 128//workers
+#n_rounds = 128//workers
+n_rounds = 4
 n_moves = 64
 
 epochs = 3
