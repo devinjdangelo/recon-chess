@@ -86,8 +86,8 @@ class ReconTrainer:
 
         
         if rank==0:
-            self.splits = np.zeros(self.splits.shape,dtype=np.int32)
-            self.bootstrap = np.ones(self.bootstrap.shape,dtype=np.int32)
+            self.splits[:] = [0]*workers
+            self.bootstrap[:] = [0]*workers
             bootstrap = np.ones((workers,n_moves*2),dtype=np.int32)
             split_idx = []
 
@@ -145,7 +145,7 @@ class ReconTrainer:
 
                 comm.Barrier()
                 if rank==0:
-                    split_idx += [(i+1)*total_turns for i in range(workers) if self.splits[i]==1]
+                    split_idx += [i*n_moves*2+total_turns for i in range(workers) if self.splits[i]==1]
                     self.splits[:] = [0]*workers
 
                 player = players[game.turn]
@@ -232,14 +232,13 @@ class ReconTrainer:
                 if rank==0:
                     memory = [obs_memory,mask_memory,action_memory,rewards]
                     memory = [np.reshape(m,(-1,)+m.shape[2:]) for m in memory]
-                    split_idx += [(i+1)*total_turns for i in range(workers-1)]
+                    split_idx += [i*n_moves*2+total_turns for i in range(workers-1)]
                     split_idx.sort()
                     splits_by_mem = [split_idx,[idx//2 for idx in split_idx],split_idx,split_idx]
                     memory = [np.split(m,splits_by_mem[i],axis=0) for i,m in enumerate(memory)]
 
                     bootstrap = np.split(np.reshape(bootstrap,(-1,)),split_idx)
                     gae = []
-                    print(len(memory[0]))
                     for i in range(len(memory[0])):
                         should_bootstrap = bootstrap[i][-1]==1
                         if should_bootstrap:
