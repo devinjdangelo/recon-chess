@@ -1,4 +1,5 @@
 import tensorflow as tf
+from math import ceil
 
 from tensorflow.keras.layers import Dense, Flatten, Conv2D, LSTM, Reshape, Masking
 from tensorflow.keras import Model
@@ -9,8 +10,9 @@ import random
 
 class ReconChessNet(Model):
 	#Implements Tensorflow NN for ReconBot
-	def __init__(self,name):
+	def __init__(self,name,max_batch_size,learning_rate):
 		self.netname = name
+		self.max_batch_size = max_batch_size
 
 		super(ReconChessNet, self).__init__()
 		#self.mask = Masking(mask_value=0)
@@ -35,7 +37,7 @@ class ReconChessNet(Model):
 
 		self.v = Dense(1,name='v')
 
-		self.optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
+		self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 
 	def call(self,x):
 		pass
@@ -176,11 +178,47 @@ class ReconChessNet(Model):
 		return loss,pg_loss,entropy,vf_loss,tape.gradient(loss,self.trainable_variables)
 
 	def update(self,inputs,mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip):
-		loss,pg_loss,entropy,vf_loss,grads = self.grad(inputs,mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip)
+
+		total_batch_size = len(inputs)
+		n_iters = ceil(total_batch_size/self.max_batch_size)
+		batch_size_per_iter = total_batch_size//n_iters
+
+		accumulate_gradients = []
+		accumulate_loss = []
+		accumulate_pg_loss = []
+		accumulate_entropy = []
+		accumulate_vf_loss = []
+
+		for i in range(n_iters):
+			if i==n_iters-1:
+				start = i*batch_size_per_iter
+				end = total_batch_size
+			else:
+				start = i*batch_size_per_iter
+				end = (i+1)*batch_size_per_iter
+
+			print('sending ',end-start,' games to gpu ')
+			
+			loss,pg_loss,entropy,vf_loss,grads = self.grad(inputs[start:end],mask[start:end],lg_prob_old[start:end],
+															a_taken[start:end],GAE[start:end],old_v_pred[start:end],
+															returns[start:end],clip)
+			accumulate_gradients.append(grads)
+			accumulate_loss.append(loss.numpy())
+			accumulate_pg_loss.append(pg_loss.numpy())
+			accumulate_entropy.append(entropy.numpy())
+			accumulate_vf_loss.append(vf_loss.numpy())
+
+
+
+		grads = [tf.math.add_n([t[i] for t in accumulate_gradients])/n_iters for i in range(len(accumulate_gradients[0]))]
 		grads,g_n = tf.clip_by_global_norm(grads,0.5)
 		self.optimizer.apply_gradients(zip(grads,self.trainable_variables))
 
-		return loss.numpy(),pg_loss.numpy(),entropy.numpy(),vf_loss.numpy(),g_n.numpy()
+		loss,pg_loss,entropy,vf_loss = np.mean(accumulate_loss),np.mean(accumulate_pg_loss), \
+										np.mean(accumulate_entropy),np.mean(accumulate_vf_loss)
+
+
+		return loss,pg_loss,entropy,vf_loss,g_n.numpy()
 
 	def sample_pir(self,x):
 		#return recon actions given batch of obs

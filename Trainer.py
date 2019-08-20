@@ -18,7 +18,7 @@ from ReconBot import ReconBot
 class ReconTrainer:
     # implements training procedures for ReconBot
     # by interfacing with reconchess api
-    def __init__(self,model_path,load_model,load_opponent_model,opponent_initial_model_path,score,score_smoothing,game_stat_path,net_stat_path):
+    def __init__(self,model_path,load_model,load_opponent_model,opponent_initial_model_path,score,score_smoothing,game_stat_path,net_stat_path,max_batch_size,learning_rate):
 
         self.model_path = model_path
         self.game_stat_path = game_stat_path
@@ -42,10 +42,10 @@ class ReconTrainer:
             self.losses[:] = [0]*workers
             self.ties[:] = [0]*workers
 
-            self.train_net = ReconChessNet('train')
+            self.train_net = ReconChessNet('train',max_batch_size,learning_rate)
             self.train_agent = ReconBot(net=self.train_net,verbose=False,name='train')
 
-            self.opponent_net = ReconChessNet('opponent')
+            self.opponent_net = ReconChessNet('opponent',max_batch_size,learning_rate)
             self.opponent_agent = ReconBot(net=self.opponent_net,verbose=False,name='opponent')
 
             self.train_agent.init_net()
@@ -212,7 +212,8 @@ class ReconTrainer:
             black.handle_game_end(winner, win_reason, game_history)
 
             if rank==0 and loop%100==0:
-                game_history.save('./replays/loop'+str(loop)+'step'+str(total_turns)+'.json')
+                colorstr = 'white' if train_as_white else 'black'
+                game_history.save('./replays/loop'+str(loop)+'step'+str(total_turns)+colorstr+'.json')
 
 
             if game_turns//2>max_turns_per_game and total_turns < n_moves*2:
@@ -284,9 +285,9 @@ class ReconTrainer:
             if rank==0:
                 ngames = len(outmem[0])
                 tot_wins,tot_losses,tot_ties = np.sum(self.wins),np.sum(self.losses),np.sum(self.ties)
-                self.win_avg = self.win_avg*self.score_smoothing + (1-self.score_smoothing)*tot_wins/ngames
-                self.loss_avg = self.loss_avg*self.score_smoothing + (1-self.score_smoothing)*tot_losses/ngames
-                self.tie_avg = self.tie_avg*self.score_smoothing + (1-self.score_smoothing)*tot_ties/ngames
+                self.win_avg = self.win_avg*0.8 + (1-0.8)*tot_wins/ngames
+                self.loss_avg = self.loss_avg*0.8 + (1-0.8)*tot_losses/ngames
+                self.tie_avg = self.tie_avg*0.8 + (1-0.8)*tot_ties/ngames
 
                 print('loop: ', loop,' Games Played: ',ngames,' Wins: ',tot_wins, ' losses: ',tot_losses,
                     ' ties: ',tot_ties,' score: ',np.mean(self.score),' Win pct: ','{0:.2f}'.format(self.win_avg),' loss pct: ','{0:.2f}'.format(self.loss_avg))
@@ -303,7 +304,7 @@ class ReconTrainer:
 
         return game_memory
 
-    def train(self,n_rounds,n_moves,epochs,equalize_weights_on_score,save_every_n,max_turns_per_game,max_batch_size):
+    def train(self,n_rounds,n_moves,epochs,equalize_weights_on_score,save_every_n,max_turns_per_game):
         loop = 1
         total_steps_gathered = 0
         start_time = time.time()
@@ -317,7 +318,7 @@ class ReconTrainer:
             if rank==0:
                 samples_available = list(range(len(mem[0])))
                 total_steps_gathered += sum([len(m) for m in mem[0]])
-                batch_size = min(len(samples_available)//2,max_batch_size)
+                batch_size = len(samples_available)//2
                 n_batches = len(samples_available)//batch_size*epochs
 
                 #print(len(samples_available),batch_size,n_batches)
