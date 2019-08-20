@@ -18,7 +18,7 @@ from ReconBot import ReconBot
 class ReconTrainer:
     # implements training procedures for ReconBot
     # by interfacing with reconchess api
-    def __init__(self,model_path,load_model,opponent_initial_model_path,score,score_smoothing,game_stat_path,net_stat_path):
+    def __init__(self,model_path,load_model,load_opponent_model,opponent_initial_model_path,score,score_smoothing,game_stat_path,net_stat_path):
 
         self.model_path = model_path
         self.game_stat_path = game_stat_path
@@ -48,25 +48,31 @@ class ReconTrainer:
             self.opponent_net = ReconChessNet('opponent')
             self.opponent_agent = ReconBot(net=self.opponent_net,verbose=False,name='opponent')
 
+            self.train_agent.init_net()
+            self.opponent_agent.init_net()
+
             if not load_model:
-                self.train_agent.init_net()
-                self.opponent_agent.init_net()
                 self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
                 self.opponent_net.set_weights(self.train_net.get_weights())            
 
             else:
                 self.train_net.load_weights(self.model_path)
                 self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
-                if opponent_initial_model_path is not None:
+                if load_opponent_model and opponent_initial_model_path is not None:
+                    #load specific model as opponent
                     self.opponent_net.load_weights(opponent_initial_model_path)
                     self.opponent_net.lstm_stateful.set_weights(self.opponent_net.lstm.get_weights())
-                else:
+                elif load_opponent_model:
+                    #load same model as train
                     self.opponent_net.set_weights(self.train_net.get_weights()) 
+                else:
+                    #initialize random weights
+                    self.opponent_net.set_weights(self.train_net.get_weights())    
 
 
             with open(self.game_stat_path,'w',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
-                    wr.writerows([('Loop','Round','ngames','Wins','Losses','Ties','Score Avg')])
+                    wr.writerows([('Loop','Round','ngames','Wins','Losses','Ties','Score Avg','Win Avg','Loss Avg','Tie Avg')])
 
             with open(self.net_stat_path,'w',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
@@ -78,7 +84,7 @@ class ReconTrainer:
             self.opponent_agent = ReconBot(verbose=False,name='opponent')
 
 
-    def play_n_moves(self,n_moves,max_turns_per_game):
+    def play_n_moves(self,n_moves,max_turns_per_game,loop):
         #adapted from reconchess.play.play_local_game() 
         #gathers n_moves of experience, restarting the game as many times as needed
         #white -> white player agent
@@ -205,6 +211,10 @@ class ReconTrainer:
             white.handle_game_end(winner, win_reason, game_history)
             black.handle_game_end(winner, win_reason, game_history)
 
+            if rank==0 and loop%100==0:
+                game_history.save('./replays/loop'+str(loop)+'step'+str(total_turns)+'.json')
+
+
             if game_turns//2>max_turns_per_game and total_turns < n_moves*2:
                 game_turns = 0
                 self.splits[rank] = 1
@@ -270,15 +280,20 @@ class ReconTrainer:
     def collect_exp(self,n_rounds,n_moves,max_turns_per_game,loop):
         game_memory = [[],[],[],[],[]]
         for game in range(n_rounds):
-            outmem = self.play_n_moves(n_moves,max_turns_per_game)
+            outmem = self.play_n_moves(n_moves,max_turns_per_game,loop)
             if rank==0:
                 ngames = len(outmem[0])
-                print('loop: ', loop,' Games Played: ',ngames,' Wins: ',np.sum(self.wins), ' losses: ',np.sum(self.losses),
-                    ' ties: ',np.sum(self.ties),' score: ',np.mean(self.score))
+                tot_wins,tot_losses,tot_ties = np.sum(self.wins),np.sum(self.losses),np.sum(self.ties)
+                self.win_avg = self.win_avg*self.score_smoothing + (1-self.score_smoothing)*tot_wins/ngames
+                self.loss_avg = self.loss_avg*self.score_smoothing + (1-self.score_smoothing)*tot_losses/ngames
+                self.tie_avg = self.tie_avg*self.score_smoothing + (1-self.score_smoothing)*tot_ties/ngames
+
+                print('loop: ', loop,' Games Played: ',ngames,' Wins: ',tot_wins, ' losses: ',tot_losses,
+                    ' ties: ',tot_ties,' score: ',np.mean(self.score),' Win pct: ',self.win_avg,' loss pct: ',self.loss_avg)
 
                 with open(self.game_stat_path,'a',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
-                    wr.writerow([loop,game,ngames,np.sum(self.wins),np.sum(self.losses),np.sum(self.ties),np.mean(self.score)])
+                    wr.writerow([loop,game,ngames,tot_wins,tot_losses,tot_ties,np.mean(self.score),'{0:.2f}'.format(self.win_avg),'{0:.2f}'.format(self.loss_avg),'{0:.2f}'.format(self.tie_avg)])
 
                 self.wins[:] = [0]*workers
                 self.losses[:] = [0]*workers
@@ -288,10 +303,14 @@ class ReconTrainer:
 
         return game_memory
 
-    def train(self,n_rounds,n_moves,epochs,equalize_weights_every_n,save_every_n,max_turns_per_game,max_batch_size):
+    def train(self,n_rounds,n_moves,epochs,equalize_weights_on_score,save_every_n,max_turns_per_game,max_batch_size):
         loop = 1
         total_steps_gathered = 0
         start_time = time.time()
+        if rank==0:
+            self.win_avg = 0.33
+            self.loss_avg = 0.33
+            self.tie_avg = 0.33
         while True:
             mem = self.collect_exp(n_rounds,n_moves,max_turns_per_game,loop)
 
@@ -319,11 +338,18 @@ class ReconTrainer:
 
                 self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
 
-                #if loop%equalize_weights_every_n==0:
-                    #self.opponent_net.set_weights(self.train_net.get_weights)
+                if self.score >= equalize_weights_on_score==0:
+                    #once desired performance is achieved, equalized opponent/train weights 
+                    #and reset performance metrics
+                    self.opponent_net.set_weights(self.train_net.get_weights)
+                    self.score[:] = [0]*workers
+                    self.win_avg = 0.33
+                    self.loss_avg = 0.33
+                    self.tie_avg = 0.33
 
                 if loop%save_every_n==0:
-                    self.train_net.save_weights(self.model_path)
+                    self.train_net.save_weights(self.model_path+'train_loop_'+str(loop))
+                    self.opponent_net.save_weights(self.model_path+'opponent_loop_'+str(loop))
 
                 steps_per_second = total_steps_gathered/(time.time()-start_time)
                 msteps_per_day = steps_per_second*60*60*24/1e6
