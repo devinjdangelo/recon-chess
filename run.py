@@ -6,7 +6,7 @@ rank = comm.rank
 workers  = comm.Get_size()
 
 model_path = './models/'
-load_model = True
+load_model = False
 load_opponent_model = False
 opponent_initial_model_path = None
 
@@ -30,4 +30,4 @@ equalize_weights_on_score = 0.5 #approx 55% win rate
 save_every_n = 100
 
 
-trainer.train(n_rounds,n_moves,epochs,equalize_weights_every_n,save_every_n,max_turns_per_game,max_batch_size)
+trainer.train(n_rounds,n_moves,epochs,equalize_weights_on_score,save_every_n,max_turns_per_game,max_batch_size)

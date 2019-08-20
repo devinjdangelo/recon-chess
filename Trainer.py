@@ -289,11 +289,11 @@ class ReconTrainer:
                 self.tie_avg = self.tie_avg*self.score_smoothing + (1-self.score_smoothing)*tot_ties/ngames
 
                 print('loop: ', loop,' Games Played: ',ngames,' Wins: ',tot_wins, ' losses: ',tot_losses,
-                    ' ties: ',tot_ties,' score: ',np.mean(self.score),' Win pct: ',self.win_avg,' loss pct: ',self.loss_avg)
+                    ' ties: ',tot_ties,' score: ',np.mean(self.score),' Win pct: ','{0:.2f}'.format(self.win_avg),' loss pct: ','{0:.2f}'.format(self.loss_avg))
 
                 with open(self.game_stat_path,'a',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
-                    wr.writerow([loop,game,ngames,tot_wins,tot_losses,tot_ties,np.mean(self.score),'{0:.2f}'.format(self.win_avg),'{0:.2f}'.format(self.loss_avg),'{0:.2f}'.format(self.tie_avg)])
+                    wr.writerow([loop,game,ngames,tot_wins,tot_losses,tot_ties,np.mean(self.score),self.win_avg,self.loss_avg,self.tie_avg])
 
                 self.wins[:] = [0]*workers
                 self.losses[:] = [0]*workers
@@ -338,7 +338,7 @@ class ReconTrainer:
 
                 self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
 
-                if self.score >= equalize_weights_on_score==0:
+                if np.mean(self.score) >= equalize_weights_on_score==0:
                     #once desired performance is achieved, equalized opponent/train weights 
                     #and reset performance metrics
                     self.opponent_net.set_weights(self.train_net.get_weights)
