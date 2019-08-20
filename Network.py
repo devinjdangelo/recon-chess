@@ -198,24 +198,27 @@ class ReconChessNet(Model):
 				end = (i+1)*batch_size_per_iter
 
 			print('sending ',end-start,' games to gpu ')
+
 			
 			loss,pg_loss,entropy,vf_loss,grads = self.grad(inputs[start:end],mask[start:end],lg_prob_old[start:end],
 															a_taken[start:end],GAE[start:end],old_v_pred[start:end],
 															returns[start:end],clip)
-			accumulate_gradients.append(grads)
-			accumulate_loss.append(loss.numpy())
-			accumulate_pg_loss.append(pg_loss.numpy())
-			accumulate_entropy.append(entropy.numpy())
-			accumulate_vf_loss.append(vf_loss.numpy())
+
+			weight = (end-start) / total_batch_size
+			accumulate_gradients.append([g*weight for g in grads])
+			accumulate_loss.append(loss.numpy()*weight)
+			accumulate_pg_loss.append(pg_loss.numpy()*weight)
+			accumulate_entropy.append(entropy.numpy()*weight)
+			accumulate_vf_loss.append(vf_loss.numpy()*weight)
 
 
 
-		grads = [tf.math.add_n([t[i] for t in accumulate_gradients])/n_iters for i in range(len(accumulate_gradients[0]))]
+		grads = [tf.math.add_n([t[i] for t in accumulate_gradients]) for i in range(len(accumulate_gradients[0]))]
 		grads,g_n = tf.clip_by_global_norm(grads,0.5)
 		self.optimizer.apply_gradients(zip(grads,self.trainable_variables))
 
-		loss,pg_loss,entropy,vf_loss = np.mean(accumulate_loss),np.mean(accumulate_pg_loss), \
-										np.mean(accumulate_entropy),np.mean(accumulate_vf_loss)
+		loss,pg_loss,entropy,vf_loss = np.sum(accumulate_loss),np.sum(accumulate_pg_loss), \
+										np.sum(accumulate_entropy),np.sum(accumulate_vf_loss)
 
 
 		return loss,pg_loss,entropy,vf_loss,g_n.numpy()
