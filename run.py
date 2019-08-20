@@ -22,10 +22,11 @@ trainer = ReconTrainer(model_path,load_model,opponent_initial_model_path,score,s
 n_rounds = 1
 n_moves = 256*2
 max_turns_per_game = 50
+max_batch_size = 64
 
 epochs = 3
 equalize_weights_every_n = 100
 save_every_n = 100
 
 
-trainer.train(n_rounds,n_moves,epochs,equalize_weights_every_n,save_every_n,max_turns_per_game)
+trainer.train(n_rounds,n_moves,epochs,equalize_weights_every_n,save_every_n,max_turns_per_game,max_batch_size)

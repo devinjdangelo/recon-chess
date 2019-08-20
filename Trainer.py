@@ -288,7 +288,7 @@ class ReconTrainer:
 
         return game_memory
 
-    def train(self,n_rounds,n_moves,epochs,equalize_weights_every_n,save_every_n,max_turns_per_game):
+    def train(self,n_rounds,n_moves,epochs,equalize_weights_every_n,save_every_n,max_turns_per_game,max_batch_size):
         loop = 1
         total_steps_gathered = 0
         start_time = time.time()
@@ -298,7 +298,7 @@ class ReconTrainer:
             if rank==0:
                 samples_available = list(range(len(mem[0])))
                 total_steps_gathered += sum([len(m) for m in mem[0]])
-                batch_size = len(samples_available)//2
+                batch_size = min(len(samples_available)//2,max_batch_size)
                 n_batches = len(samples_available)//batch_size*epochs
 
                 #print(len(samples_available),batch_size,n_batches)
