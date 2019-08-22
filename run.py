@@ -15,7 +15,7 @@ score_smoothing = 0.99
 
 game_stat_path = 'Performance Stats 1.csv'
 net_stat_path = 'Network Stats 1.csv'
-max_batch_size = 96
+max_batch_size = 64
 learning_rate = 1e-3
 
 trainer = ReconTrainer(model_path,load_model,load_opponent_model,opponent_initial_model_path,score,score_smoothing,game_stat_path,net_stat_path,max_batch_size,learning_rate)
@@ -23,11 +23,11 @@ trainer = ReconTrainer(model_path,load_model,load_opponent_model,opponent_initia
 #n_rounds = 128//workers
 n_rounds = 1
 n_moves = 4112
-max_turns_per_game = 50
+max_turns_per_game = 96
 
 
 epochs = 3
-equalize_weights_on_score = 0.35 #approx 55% win rate
+equalize_weights_on_score = 0.25 #approx 55% win rate
 save_every_n = 20
 
 

@@ -343,7 +343,8 @@ class ReconTrainer:
                 if np.mean(self.score) >= equalize_weights_on_score:
                     #once desired performance is achieved, equalized opponent/train weights 
                     #and reset performance metrics
-                    self.opponent_net.set_weights(self.train_net.get_weights)
+                    print('equalizing weights')
+                    self.opponent_net.set_weights(self.train_net.get_weights())
                     self.score[:] = [0]*workers
                     self.win_avg = 0.33
                     self.loss_avg = 0.33
