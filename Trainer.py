@@ -90,7 +90,7 @@ class ReconTrainer:
         #white -> white player agent
         #black -> black player agent
 
-        
+        max_replays_to_save = 5
         if rank==0:
             self.splits[:] = [0]*workers
             self.bootstrap[:] = [0]*workers
@@ -211,9 +211,10 @@ class ReconTrainer:
             white.handle_game_end(winner, win_reason, game_history)
             black.handle_game_end(winner, win_reason, game_history)
 
-            if rank==0 and loop%100==0:
+            if rank==0 and loop%20==0 and max_replays_to_save>0:
                 colorstr = 'white' if train_as_white else 'black'
                 game_history.save('./replays/loop'+str(loop)+'step'+str(total_turns)+colorstr+'.json')
+                max_replays_to_save -= 1
 
 
             if game_turns//2>max_turns_per_game and total_turns < n_moves*2:
@@ -339,7 +340,7 @@ class ReconTrainer:
 
                 self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
 
-                if np.mean(self.score) >= equalize_weights_on_score==0:
+                if np.mean(self.score) >= equalize_weights_on_score:
                     #once desired performance is achieved, equalized opponent/train weights 
                     #and reset performance metrics
                     self.opponent_net.set_weights(self.train_net.get_weights)

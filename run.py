@@ -27,8 +27,8 @@ max_turns_per_game = 50
 
 
 epochs = 3
-equalize_weights_on_score = 0.5 #approx 55% win rate
-save_every_n = 25
+equalize_weights_on_score = 0.35 #approx 55% win rate
+save_every_n = 20
 
 
 trainer.train(n_rounds,n_moves,epochs,equalize_weights_on_score,save_every_n,max_turns_per_game)
