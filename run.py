@@ -1,4 +1,4 @@
-from Trainer import ReconTrainer
+from training.Trainer import ReconTrainer
 from mpi4py import MPI 
 
 comm = MPI.COMM_WORLD 
