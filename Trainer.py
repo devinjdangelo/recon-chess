@@ -57,9 +57,11 @@ class ReconTrainer:
                 self.opponent_net.set_weights(self.train_net.get_weights())            
 
             else:
+                print('loading train: ',self.model_path+train_initial_model_path)
                 self.train_net.load_weights(self.model_path+train_initial_model_path)
                 self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
                 if load_opponent_model and opponent_initial_model_path is not None:
+                    print('loading opponent: ',opponent_initial_model_path)
                     #load specific model as opponent
                     self.opponent_net.load_weights(self.model_path+opponent_initial_model_path)
                     self.opponent_net.lstm_stateful.set_weights(self.opponent_net.lstm.get_weights())
