@@ -18,7 +18,8 @@ from ReconBot import ReconBot
 class ReconTrainer:
     # implements training procedures for ReconBot
     # by interfacing with reconchess api
-    def __init__(self,model_path,load_model,load_opponent_model,opponent_initial_model_path,score,score_smoothing,game_stat_path,net_stat_path,max_batch_size,learning_rate):
+    def __init__(self,model_path,load_model,load_opponent_model,train_initial_model_path,opponent_initial_model_path,
+        score,score_smoothing,game_stat_path,net_stat_path,max_batch_size,learning_rate):
 
         self.model_path = model_path
         self.game_stat_path = game_stat_path
@@ -56,11 +57,11 @@ class ReconTrainer:
                 self.opponent_net.set_weights(self.train_net.get_weights())            
 
             else:
-                self.train_net.load_weights(self.model_path)
+                self.train_net.load_weights(self.model_path+train_initial_model_path)
                 self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
                 if load_opponent_model and opponent_initial_model_path is not None:
                     #load specific model as opponent
-                    self.opponent_net.load_weights(opponent_initial_model_path)
+                    self.opponent_net.load_weights(self.model_path+opponent_initial_model_path)
                     self.opponent_net.lstm_stateful.set_weights(self.opponent_net.lstm.get_weights())
                 elif load_opponent_model:
                     #load same model as train
