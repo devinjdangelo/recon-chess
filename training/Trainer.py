@@ -10,9 +10,9 @@ comm = MPI.COMM_WORLD
 rank = comm.rank
 workers  = comm.Get_size()
 
-from Sharedmem import SharedArray
-from Network import ReconChessNet
-from ReconBot import ReconBot
+from .Sharedmem import SharedArray
+from .Network import ReconChessNet
+from .ReconBot import ReconBot
 
 
 class ReconTrainer:

@@ -2,8 +2,8 @@ import random
 import numpy as np
 from reconchess import *
 
-from Network import ReconChessNet
-from Sharedmem import SharedArray
+from .Network import ReconChessNet
+from .Sharedmem import SharedArray
 
 from mpi4py import MPI 
 

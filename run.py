@@ -6,16 +6,16 @@ rank = comm.rank
 workers  = comm.Get_size()
 
 model_path = './models/'
-load_model = True
-load_opponent_model = True
+load_model = False
+load_opponent_model = False
 train_initial_model_path = 'train_loop_20'
 opponent_initial_model_path = 'opponent_loop_20'
 
-score = 0.17
+score = 0
 score_smoothing = 0.999
 
-game_stat_path = 'Performance Stats 2.csv'
-net_stat_path = 'Network Stats 2.csv'
+game_stat_path = 'Performance Stats 1.csv'
+net_stat_path = 'Network Stats 1.csv'
 max_batch_size = 48
 learning_rate = 1e-3
 

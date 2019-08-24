@@ -167,7 +167,7 @@ class ReconChessNet(Model):
 
 		entropy = e_f(pir_e) + e_f(pim_e)
 
-		loss = pg_loss - .06*entropy + vf_loss
+		loss = pg_loss - .15*entropy + vf_loss
 		#loss = pg_loss + vf_loss
 
 		return loss,pg_loss,entropy,vf_loss
