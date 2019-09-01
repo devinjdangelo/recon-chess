@@ -11,6 +11,9 @@ import random
 class ReconChessNet(Model):
 	#Implements Tensorflow NN for ReconBot
 	def __init__(self,name,max_batch_size,learning_rate):
+
+		self.entropy_weight = .02
+
 		self.netname = name
 		self.max_batch_size = max_batch_size
 
@@ -167,7 +170,7 @@ class ReconChessNet(Model):
 
 		entropy = e_f(pir_e) + e_f(pim_e)
 
-		loss = pg_loss - .15*entropy + vf_loss
+		loss = pg_loss - self.entropy_weight*entropy + vf_loss
 		#loss = pg_loss + vf_loss
 
 		return loss,pg_loss,entropy,vf_loss
