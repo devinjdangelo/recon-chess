@@ -12,7 +12,7 @@ class ReconChessNet(Model):
 	#Implements Tensorflow NN for ReconBot
 	def __init__(self,name,max_batch_size,learning_rate):
 
-		self.entropy_weight = .02
+		self.entropy_weight = .03
 
 		self.netname = name
 		self.max_batch_size = max_batch_size
@@ -208,15 +208,17 @@ class ReconChessNet(Model):
 															returns[start:end],clip)
 
 			weight = (end-start) / total_batch_size
-			accumulate_gradients.append([g*weight for g in grads])
 			accumulate_loss.append(loss.numpy()*weight)
 			accumulate_pg_loss.append(pg_loss.numpy()*weight)
 			accumulate_entropy.append(entropy.numpy()*weight)
 			accumulate_vf_loss.append(vf_loss.numpy()*weight)
 
+			accumulate_gradients.append([g*weight for g in grads])
+			if i>0:
+				accumulate_gradients = [[t[0] + t[1] for t in zip(accumulate_gradients[0],accumulate_gradients[1])]]
 
-
-		grads = [tf.math.add_n([t[i] for t in accumulate_gradients]) for i in range(len(accumulate_gradients[0]))]
+		assert len(accumulate_gradients)==1
+		grads = accumulate_gradients[0]
 		grads,g_n = tf.clip_by_global_norm(grads,0.5)
 		self.optimizer.apply_gradients(zip(grads,self.trainable_variables))
 

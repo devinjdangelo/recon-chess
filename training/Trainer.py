@@ -313,9 +313,9 @@ class ReconTrainer:
         total_steps_gathered = 0
         start_time = time.time()
         if rank==0:
-            self.win_avg = 0.33
-            self.loss_avg = 0.33
-            self.tie_avg = 0.33
+            self.win_avg = 0.45
+            self.loss_avg = 0.45
+            self.tie_avg = 0.1
         while True:
             mem = self.collect_exp(n_rounds,n_moves,max_turns_per_game,loop)
 
@@ -349,9 +349,9 @@ class ReconTrainer:
                     print('equalizing weights')
                     self.opponent_net.set_weights(self.train_net.get_weights())
                     self.score[:] = [0]*workers
-                    self.win_avg = 0.33
-                    self.loss_avg = 0.33
-                    self.tie_avg = 0.33
+                    self.win_avg = 0.45
+                    self.loss_avg = 0.45
+                    self.tie_avg = 0.10
 
                 if loop%save_every_n==0:
                     self.train_net.save_weights(self.model_path+'train_loop_'+str(loop))
