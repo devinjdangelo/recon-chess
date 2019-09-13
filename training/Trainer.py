@@ -19,11 +19,13 @@ class ReconTrainer:
     # implements training procedures for ReconBot
     # by interfacing with reconchess api
     def __init__(self,model_path,load_model,load_opponent_model,train_initial_model_path,opponent_initial_model_path,
-        score,score_smoothing,game_stat_path,net_stat_path,max_batch_size,learning_rate):
+        score,score_smoothing,game_stat_path,net_stat_path,max_batch_size,learning_rate,clip):
 
         self.model_path = model_path
         self.game_stat_path = game_stat_path
         self.net_stat_path = net_stat_path
+
+        self.clip = clip
 
 
         self.bootstrap = SharedArray((workers,),dtype=np.int32)
@@ -378,10 +380,8 @@ class ReconTrainer:
 
         gae = [(g-gae_u)/gae_o for g in gae]
 
-        
-        clip = 0.2
 
-        return self.train_net.update(inputs,mask,lg_prob_old,a_taken,gae,old_v_pred,returns,clip)
+        return self.train_net.update(inputs,mask,lg_prob_old,a_taken,gae,old_v_pred,returns,self.clip)
 
 
     @staticmethod
