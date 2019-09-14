@@ -12,7 +12,7 @@ class ReconChessNet(Model):
 	#Implements Tensorflow NN for ReconBot
 	def __init__(self,name,max_batch_size,learning_rate):
 
-		self.entropy_weight = .07
+		self.entropy_weight = .05
 
 		self.netname = name
 		self.max_batch_size = max_batch_size

@@ -15,8 +15,11 @@ from .Network import ReconChessNet
 from .ReconBot import ReconBot
 
 class ReconPlayer:
-    def __init__(self,name,max_batch_size,learning_rate):
-        self.net = ReconChessNet(name,max_batch_size,learning_rate)
+    def __init__(self,name,max_batch_size,learning_rate,no_net=False):
+        if not no_net:
+            self.net = ReconChessNet(name,max_batch_size,learning_rate)
+        else:
+            self.net=None
         self.agent = ReconBot(net=self.net,verbose=False,name=name)
 
     def sync_lstm_weights(self):
@@ -45,6 +48,7 @@ class ReconTrainer:
         self.losses = SharedArray((workers,),dtype=np.float32)
         self.ties = SharedArray((workers,),dtype=np.float32)
         self.train_color = SharedArray((1,),dtype=np.int32)
+        self.next_opponet_to_play = SharedArray((1,),dtype=np.int32)
 
         self.score_smoothing = score_smoothing
 
@@ -58,9 +62,9 @@ class ReconTrainer:
             self.opponents = [ReconPlayer('opponent '+str(i),max_batch_size,learning_rate) for i in range(self.n_opponents)]
             self.next_to_sync_with_train = 0
 
-            self.train_player.net.init_net()
+            self.train_player.agent.init_net()
             for opponent in self.opponents:
-                opponent.init_net()
+                opponent.agent.init_net()
 
             if not load_model:
                 self.train_player.sync_lstm_weights()
@@ -88,8 +92,8 @@ class ReconTrainer:
 
         else:
             #off rank 0, give full agents but with no network
-            self.train_agent = ReconBot(verbose=False,name='train')
-            self.opponent_agent = ReconBot(verbose=False,name='opponent')
+            self.train_player = ReconPlayer('train',max_batch_size,learning_rate,no_net=True)
+            self.opponents = [ReconPlayer('opponent'+str(i),max_batch_size,learning_rate,no_net=True) for i in range(self.n_opponents)]
 
 
     def play_n_moves(self,n_moves,max_turns_per_game,loop):
@@ -128,17 +132,14 @@ class ReconTrainer:
         
         if train_as_white:
             white = self.train_player.agent
+            black = self.opponents[self.next_opponet_to_play[0]].agent
         else:
             black = self.train_player.agent
+            white = self.opponents[self.next_opponet_to_play[0]].agent
 
         need_to_switch_colors = False
 
         while total_turns//2<n_moves:
-            if train_as_white:
-                black = random.choice(self.opponents).agent
-            else:
-                white = random.choice(self.opponents).agent
-
             if need_to_switch_colors:
                 white,black = black,white
                 need_to_switch_colors = False
@@ -174,14 +175,14 @@ class ReconTrainer:
                 comm.Barrier()
 
 
-                if player is self.train_agent:
+                if player is self.train_player.agent:
                     if rank==0:
-                        obs_memory[:,total_turns,:,:,:] = np.copy(self.train_agent.obs)
+                        obs_memory[:,total_turns,:,:,:] = np.copy(self.train_player.agent.obs)
                     comm.Barrier()
                     play_sense(game, player, sense_actions, move_actions)
                     comm.Barrier()
                     if rank==0:
-                        action_memory[:,total_turns,:] = np.copy(self.train_agent.action_memory)
+                        action_memory[:,total_turns,:] = np.copy(self.train_player.agent.action_memory)
                         rewards[:,total_turns] = [0]*workers
                     comm.Barrier()
                     total_turns += 1
@@ -192,15 +193,15 @@ class ReconTrainer:
                     comm.Barrier()
                     comm.Barrier()
 
-                if player is self.train_agent:
+                if player is self.train_player.agent:
                     if rank==0:
-                        obs_memory[:,total_turns,:,:,:] = np.copy(self.train_agent.obs)
+                        obs_memory[:,total_turns,:,:,:] = np.copy(self.train_player.agent.obs)
                     comm.Barrier()
                     play_move(game, player, move_actions)
                     comm.Barrier()
                     if rank==0:
-                        mask_memory[:,total_turns//2,:] = np.copy(self.train_agent.mask)
-                        action_memory[:,total_turns,:] = np.copy(self.train_agent.action_memory)
+                        mask_memory[:,total_turns//2,:] = np.copy(self.train_player.agent.mask)
+                        action_memory[:,total_turns,:] = np.copy(self.train_player.agent.action_memory)
                         rewards[:,total_turns] = [0]*workers
                     comm.Barrier()
                     
@@ -252,7 +253,7 @@ class ReconTrainer:
 
             if total_turns == n_moves*2:
                 if rank==0:
-                    terminal_state_value = self.train_agent.get_terminal_v()
+                    terminal_state_value = self.train_player.agent.get_terminal_v()
                 if winner is not None:
                     self.bootstrap[rank] = 0
                 comm.Barrier()
@@ -283,6 +284,12 @@ class ReconTrainer:
 
                 else:
                     memory = [[],[],[],[],[]]
+
+        if rank==0:
+            if self.next_opponet_to_play<self.n_opponents-1:
+                self.next_opponet_to_play[:] += 1
+            else:
+                self.next_opponet_to_play[:] = 0
 
 
 
@@ -354,7 +361,7 @@ class ReconTrainer:
                     #once desired performance is achieved, equalized opponent/train weights 
                     #and reset performance metrics
                     print('equalizing weights')
-                    self.opponents[self.next_to_sync_with_train].net.set_weights(self.train_net.get_weights())
+                    self.opponents[self.next_to_sync_with_train].net.set_weights(self.train_player.net.get_weights())
                     self.next_to_sync_with_train = 0 if self.next_to_sync_with_train==self.n_opponents-1 else self.next_to_sync_with_train+1
                     self.score[:] = [0]*workers
                     self.win_avg = 0.45
@@ -388,7 +395,7 @@ class ReconTrainer:
         gae = [(g-gae_u)/gae_o for g in gae]
 
 
-        return self.train_net.update(inputs,mask,lg_prob_old,a_taken,gae,old_v_pred,returns,self.clip)
+        return self.train_player.net.update(inputs,mask,lg_prob_old,a_taken,gae,old_v_pred,returns,self.clip)
 
 
     @staticmethod

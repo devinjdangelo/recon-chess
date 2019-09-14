@@ -22,5 +22,5 @@ def SharedArray(shape,dtype=np.float32):
 	else:
 		win = MPI.Win.Allocate_shared(0, bytesize, comm=comm) 
 	buf, itemsize = win.Shared_query(0) 
-	return np.ndarray(buffer=buf, dtype=np.float32, shape=shape) 
+	return np.ndarray(buffer=buf, dtype=dtype, shape=shape) 
 
