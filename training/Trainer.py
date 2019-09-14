@@ -14,18 +14,27 @@ from .Sharedmem import SharedArray
 from .Network import ReconChessNet
 from .ReconBot import ReconBot
 
+class ReconPlayer:
+    def __init__(self,name,max_batch_size,learning_rate):
+        self.net = ReconChessNet(name,max_batch_size,learning_rate)
+        self.agent = ReconBot(net=self.net,verbose=False,name=name)
+
+    def sync_lstm_weights(self):
+        self.net.lstm_stateful.set_weights(self.net.lstm.get_weights())
+
 
 class ReconTrainer:
     # implements training procedures for ReconBot
     # by interfacing with reconchess api
     def __init__(self,model_path,load_model,load_opponent_model,train_initial_model_path,opponent_initial_model_path,
-        score,score_smoothing,game_stat_path,net_stat_path,max_batch_size,learning_rate,clip):
+        score,score_smoothing,game_stat_path,net_stat_path,max_batch_size,learning_rate,clip,n_opponents):
 
         self.model_path = model_path
         self.game_stat_path = game_stat_path
         self.net_stat_path = net_stat_path
 
         self.clip = clip
+        self.n_opponents = n_opponents
 
 
         self.bootstrap = SharedArray((workers,),dtype=np.int32)
@@ -45,34 +54,28 @@ class ReconTrainer:
             self.losses[:] = [0]*workers
             self.ties[:] = [0]*workers
 
-            self.train_net = ReconChessNet('train',max_batch_size,learning_rate)
-            self.train_agent = ReconBot(net=self.train_net,verbose=False,name='train')
+            self.train_player = ReconPlayer('train',max_batch_size,learning_rate)
+            self.opponents = [ReconPlayer('opponent '+str(i),max_batch_size,learning_rate) for i in range(self.n_opponents)]
+            self.next_to_sync_with_train = 0
 
-            self.opponent_net = ReconChessNet('opponent',max_batch_size,learning_rate)
-            self.opponent_agent = ReconBot(net=self.opponent_net,verbose=False,name='opponent')
-
-            self.train_agent.init_net()
-            self.opponent_agent.init_net()
+            self.train_player.net.init_net()
+            for opponent in self.opponents:
+                opponent.init_net()
 
             if not load_model:
-                self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
-                self.opponent_net.set_weights(self.train_net.get_weights())            
-
+                self.train_player.sync_lstm_weights()
+                for opponent in self.opponents:
+                    opponent.sync_lstm_weights()
             else:
                 print('loading train: ',self.model_path+train_initial_model_path)
-                self.train_net.load_weights(self.model_path+train_initial_model_path)
-                self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
+                self.train_player.net.load_weights(self.model_path+train_initial_model_path)
+                self.train_player.net.sync_lstm_weights()
                 if load_opponent_model and opponent_initial_model_path is not None:
-                    print('loading opponent: ',opponent_initial_model_path)
-                    #load specific model as opponent
-                    self.opponent_net.load_weights(self.model_path+opponent_initial_model_path)
-                    self.opponent_net.lstm_stateful.set_weights(self.opponent_net.lstm.get_weights())
-                elif load_opponent_model:
-                    #load same model as train
-                    self.opponent_net.set_weights(self.train_net.get_weights()) 
-                else:
-                    #initialize random weights
-                    self.opponent_net.set_weights(self.train_net.get_weights())    
+                    print('loading opponents: ',opponent_initial_model_path)
+                    #load specific models as opponents
+                    for i in range(self.n_opponents):
+                        self.opponents[i].net.load_weights(self.model_path+opponent_initial_model_path+str(i))
+                        self.opponents[i].net.sync_lstm_weights()  
 
 
             with open(self.game_stat_path,'w',newline='', encoding='utf-8') as output:
@@ -124,15 +127,17 @@ class ReconTrainer:
 
         
         if train_as_white:
-            white = self.train_agent
-            black = self.opponent_agent
+            white = self.train_player.agent
         else:
-            black = self.train_agent
-            white = self.opponent_agent
+            black = self.train_player.agent
 
         need_to_switch_colors = False
 
         while total_turns//2<n_moves:
+            if train_as_white:
+                black = random.choice(self.opponents).agent
+            else:
+                white = random.choice(self.opponents).agent
 
             if need_to_switch_colors:
                 white,black = black,white
@@ -343,21 +348,23 @@ class ReconTrainer:
                         wr = csv.writer(output)
                         wr.writerows([(i,loss,pg_loss,entropy,vf_loss,g_n)])
 
-                self.train_net.lstm_stateful.set_weights(self.train_net.lstm.get_weights())
+                self.train_player.sync_lstm_weights
 
                 if np.mean(self.score) >= equalize_weights_on_score:
                     #once desired performance is achieved, equalized opponent/train weights 
                     #and reset performance metrics
                     print('equalizing weights')
-                    self.opponent_net.set_weights(self.train_net.get_weights())
+                    self.opponents[self.next_to_sync_with_train].net.set_weights(self.train_net.get_weights())
+                    self.next_to_sync_with_train = 0 if self.next_to_sync_with_train==self.n_opponents-1 else self.next_to_sync_with_train+1
                     self.score[:] = [0]*workers
                     self.win_avg = 0.45
                     self.loss_avg = 0.45
                     self.tie_avg = 0.10
 
                 if loop%save_every_n==0:
-                    self.train_net.save_weights(self.model_path+'train_loop_'+str(loop))
-                    self.opponent_net.save_weights(self.model_path+'opponent_loop_'+str(loop))
+                    self.train_player.net.save_weights(self.model_path+'train_loop_'+str(loop))
+                    for i in range(self.n_opponents):
+                        self.opponents[i].net.save_weights(self.model_path+'opponent_loop_'+str(i)+str(loop))
 
                 steps_per_second = total_steps_gathered/(time.time()-start_time)
                 msteps_per_day = steps_per_second*60*60*24/1e6
