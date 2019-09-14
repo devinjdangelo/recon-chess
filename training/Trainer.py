@@ -43,7 +43,7 @@ class ReconTrainer:
         self.bootstrap = SharedArray((workers,),dtype=np.int32)
         self.splits = SharedArray((workers,),dtype=np.int32)
 
-        self.score = SharedArray((workers,),dtype=np.float32)
+        self.score = SharedArray((workers,self.n_opponents),dtype=np.float32)
         self.wins = SharedArray((workers,),dtype=np.float32)
         self.losses = SharedArray((workers,),dtype=np.float32)
         self.ties = SharedArray((workers,),dtype=np.float32)
@@ -53,7 +53,7 @@ class ReconTrainer:
         self.score_smoothing = score_smoothing
 
         if rank==0:
-            self.score[:] = [score]*workers
+            self.score[:,:] = score
             self.wins[:] = [0]*workers
             self.losses[:] = [0]*workers
             self.ties[:] = [0]*workers
@@ -84,7 +84,7 @@ class ReconTrainer:
 
             with open(self.game_stat_path,'w',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
-                    wr.writerows([('Loop','Round','ngames','Wins','Losses','Ties','Score Avg','Win Avg','Loss Avg','Tie Avg')])
+                    wr.writerows([('Loop','Round','ngames','Wins','Losses','Ties','Score Avg','Win Avg','Loss Avg','Tie Avg','scoremin','scoremax')])
 
             with open(self.net_stat_path,'w',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
@@ -240,15 +240,15 @@ class ReconTrainer:
                 if (winner and train_as_white) or (not winner and not train_as_white):
                     rewards[rank,total_turns-1] += 1
                     self.splits[rank] = 1
-                    self.score[rank] = 1*(1-self.score_smoothing)+ self.score[rank] * self.score_smoothing
+                    self.score[rank,self.next_opponet_to_play[0]] = 1*(1-self.score_smoothing)+ self.score[rank,self.next_opponet_to_play[0]] * self.score_smoothing
                     self.wins[rank] += 1
                 elif (not winner and train_as_white) or (winner and not train_as_white):
                     rewards[rank,total_turns-1] -= 1
                     self.splits[rank] = 1
-                    self.score[rank] = -1*(1-self.score_smoothing)+ self.score[rank] * self.score_smoothing
+                    self.score[rank,self.next_opponet_to_play[0]] = -1*(1-self.score_smoothing)+ self.score[rank,self.next_opponet_to_play[0]] * self.score_smoothing
                     self.losses[rank] += 1
             else:
-                self.score[rank] = self.score[rank] * self.score_smoothing
+                self.score[rank,self.next_opponet_to_play[0]] = self.score[rank,self.next_opponet_to_play[0]] * self.score_smoothing
                 self.ties[rank] += 1
 
             if total_turns == n_moves*2:
@@ -312,7 +312,7 @@ class ReconTrainer:
 
                 with open(self.game_stat_path,'a',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
-                    wr.writerow([loop,game,ngames,tot_wins,tot_losses,tot_ties,np.mean(self.score),self.win_avg,self.loss_avg,self.tie_avg])
+                    wr.writerow([loop,game,ngames,tot_wins,tot_losses,tot_ties,np.mean(self.score),self.win_avg,self.loss_avg,self.tie_avg,np.amin(np.mean(self.score,0)),np.amax(np.mean(self.score,0))])
 
                 self.wins[:] = [0]*workers
                 self.losses[:] = [0]*workers
@@ -357,13 +357,13 @@ class ReconTrainer:
 
                 self.train_player.sync_lstm_weights
 
-                if np.mean(self.score) >= equalize_weights_on_score:
+                if np.amin(np.mean(self.score,0)) >= equalize_weights_on_score:
                     #once desired performance is achieved, equalized opponent/train weights 
                     #and reset performance metrics
                     print('equalizing weights')
                     self.opponents[self.next_to_sync_with_train].net.set_weights(self.train_player.net.get_weights())
                     self.next_to_sync_with_train = 0 if self.next_to_sync_with_train==self.n_opponents-1 else self.next_to_sync_with_train+1
-                    self.score[:] = [0]*workers
+                    self.score[:,:] = 0
                     self.win_avg = 0.45
                     self.loss_avg = 0.45
                     self.tie_avg = 0.10
