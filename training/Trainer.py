@@ -73,13 +73,13 @@ class ReconTrainer:
             else:
                 print('loading train: ',self.model_path+train_initial_model_path)
                 self.train_player.net.load_weights(self.model_path+train_initial_model_path)
-                self.train_player.net.sync_lstm_weights()
+                self.train_player.sync_lstm_weights()
                 if load_opponent_model and opponent_initial_model_path is not None:
-                    print('loading opponents: ',opponent_initial_model_path)
+                    print('loading opponents: ',opponent_initial_model_path+train_initial_model_path[-3:])
                     #load specific models as opponents
                     for i in range(self.n_opponents):
-                        self.opponents[i].net.load_weights(self.model_path+opponent_initial_model_path+str(i))
-                        self.opponents[i].net.sync_lstm_weights()  
+                        self.opponents[i].net.load_weights(self.model_path+opponent_initial_model_path+str(i)+train_initial_model_path[-3:])
+                        self.opponents[i].sync_lstm_weights()  
 
 
             with open(self.game_stat_path,'w',newline='', encoding='utf-8') as output:
@@ -331,8 +331,6 @@ class ReconTrainer:
             self.loss_avg = 0.45
             self.tie_avg = 0.1
         while True:
-            mem = self.collect_exp(n_rounds,n_moves,max_turns_per_game,loop)
-
             if rank==0:
                 samples_available = list(range(len(mem[0])))
                 total_steps_gathered += sum([len(m) for m in mem[0]])

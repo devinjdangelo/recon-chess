@@ -12,7 +12,7 @@ class ReconChessNet(Model):
 	#Implements Tensorflow NN for ReconBot
 	def __init__(self,name,max_batch_size,learning_rate):
 
-		self.entropy_weight = .05
+		self.entropy_weight = .08
 
 		self.netname = name
 		self.max_batch_size = max_batch_size
@@ -193,6 +193,11 @@ class ReconChessNet(Model):
 		accumulate_vf_loss = []
 
 		for i in range(n_iters):
+			#EAGER EXECUTION BUG MEMORY LEAK
+            #https://github.com/tensorflow/tensorflow/issues/19671
+            #set seed is workarond
+            tf.random.set_seed(1)
+            mem = self.collect_exp(n_rounds,n_moves,max_turns_per_game,loop)
 			if i==n_iters-1:
 				start = i*batch_size_per_iter
 				end = total_batch_size
