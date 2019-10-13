@@ -1,5 +1,6 @@
 import tensorflow as tf
 from math import ceil
+import nvidia_smi
 
 from tensorflow.keras.layers import Dense, Flatten, Conv2D, LSTM, Reshape, Masking
 from tensorflow.keras import Model
@@ -7,6 +8,19 @@ from tensorflow.keras.initializers import TruncatedNormal
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import numpy as np
 import random
+
+def gpu_usage():
+	nvidia_smi.nvmlInit()
+
+	handle = nvidia_smi.nvmlDeviceGetHandleByIndex(0)
+	# card id 0 hardcoded here, there is also a call to get all available card ids, so we could iterate
+
+	info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
+	usage = info.used
+
+	nvidia_smi.nvmlShutdown()
+	return usage
+
 
 class ReconChessNet(Model):
 	#Implements Tensorflow NN for ReconBot
@@ -41,6 +55,8 @@ class ReconChessNet(Model):
 		self.v = Dense(1,name='v')
 
 		self.optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+
+		# print('initialized ',name,' usage ',gpu_usage())
 
 	def call(self,x):
 		pass
@@ -114,6 +130,7 @@ class ReconChessNet(Model):
 		returns = tf.reshape(pad_sequences(returns,padding='post',dtype=np.float32),(-1,))
 		mask_padded = pad_sequences(mask,padding='post')
 		mask_padded = tf.cast(tf.reshape(mask_padded,(-1,4096)),tf.float32)
+		# print(mask_padded.shape,old_v_pred.shape,len(inputs))
 
 		lstm = self.get_lstm(inputs,inference=False,mask=actual_timesteps)
 
@@ -153,6 +170,7 @@ class ReconChessNet(Model):
 
 
 		vpredclipped = old_v_pred + tf.clip_by_value(vpred-old_v_pred,-clip,clip)
+		# print(gpu_usage())
 		vf_losses1 = tf.square(vpred - returns)
 		vf_losses2 = tf.square(vpredclipped - returns)
 
@@ -184,7 +202,7 @@ class ReconChessNet(Model):
 
 		total_batch_size = len(inputs)
 		n_iters = ceil(total_batch_size/self.max_batch_size)
-		batch_size_per_iter = total_batch_size//n_iters
+		batch_size_per_iter = self.max_batch_size
 
 		accumulate_gradients = []
 		accumulate_loss = []
@@ -193,11 +211,11 @@ class ReconChessNet(Model):
 		accumulate_vf_loss = []
 
 		for i in range(n_iters):
+			# print('iter ',i,' memory usage: ',gpu_usage())
 			#EAGER EXECUTION BUG MEMORY LEAK
-            #https://github.com/tensorflow/tensorflow/issues/19671
-            #set seed is workarond
-            tf.random.set_seed(1)
-            mem = self.collect_exp(n_rounds,n_moves,max_turns_per_game,loop)
+			#https://github.com/tensorflow/tensorflow/issues/19671
+			#set seed is workarond
+			tf.random.set_seed(1)
 			if i==n_iters-1:
 				start = i*batch_size_per_iter
 				end = total_batch_size
@@ -205,7 +223,7 @@ class ReconChessNet(Model):
 				start = i*batch_size_per_iter
 				end = (i+1)*batch_size_per_iter
 
-			#print('sending ',end-start,' games to gpu ')
+			# print('sending ',end-start,' games to gpu ')
 
 			
 			loss,pg_loss,entropy,vf_loss,grads = self.grad(inputs[start:end],mask[start:end],lg_prob_old[start:end],

@@ -1,3 +1,17 @@
+# import tensorflow as tf
+# gpus = tf.config.experimental.list_physical_devices('GPU')
+# if gpus:
+#   try:
+#     # Currently, memory growth needs to be the same across GPUs
+#     for gpu in gpus:
+#       tf.config.experimental.set_memory_growth(gpu, True)
+#     logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+#     print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+#   except RuntimeError as e:
+#     # Memory growth must be set before GPUs have been initialized
+#     print(e)
+
+
 from training.Trainer import ReconTrainer
 from mpi4py import MPI 
 
@@ -16,7 +30,7 @@ score_smoothing = 0.995
 
 game_stat_path = 'Performance Stats 8.7.csv'
 net_stat_path = 'Network Stats 8.7.csv'
-max_batch_size = 40
+max_batch_size = 80
 learning_rate = 1e-2
 clip = 0.2
 n_opponents = 5

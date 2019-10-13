@@ -85,6 +85,7 @@ RUN mkdir /tmp/openmpi && \
 
 RUN pip3 install mpi4py
 RUN pip3 install reconchess
+RUN pip3 install nvidia-ml-py3
 
 USER ${USER_NAME}
 WORKDIR ${HOME_DIR}

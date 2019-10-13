@@ -331,6 +331,7 @@ class ReconTrainer:
             self.loss_avg = 0.45
             self.tie_avg = 0.1
         while True:
+            mem = self.collect_exp(n_rounds,n_moves,max_turns_per_game,loop)
             if rank==0:
                 samples_available = list(range(len(mem[0])))
                 total_steps_gathered += sum([len(m) for m in mem[0]])
