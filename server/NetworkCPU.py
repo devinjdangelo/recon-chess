@@ -1,3 +1,5 @@
+import os 
+os.environ["CUDA_VISIBLE_DEVICES"]="-1" 
 import tensorflow as tf
 from math import ceil
 
@@ -7,6 +9,9 @@ from tensorflow.keras.initializers import TruncatedNormal
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import numpy as np
 import random
+
+#my_devices = tf.config.experimental.list_physical_devices(device_type='CPU')
+#tf.config.experimental.set_visible_devices(devices= my_devices, device_type='CPU')
 
 class ReconChessNet(Model):
 	#Implements Tensorflow NN for ReconBot
