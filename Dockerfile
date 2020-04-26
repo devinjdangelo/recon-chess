@@ -1,5 +1,5 @@
-FROM tensorflow/tensorflow:2.0.0b1-gpu-py3
-
+FROM tensorflow/tensorflow:latest-gpu-py3
+#FROM tensorflow/tensorflow:2.0.0b1-gpu-py3
 
 
 RUN apt-get update && apt-get install -y \
@@ -85,6 +85,7 @@ RUN mkdir /tmp/openmpi && \
 
 RUN pip3 install mpi4py
 RUN pip3 install reconchess
+RUN pip3 install python-chess==0.28.2
 RUN pip3 install nvidia-ml-py3
 
 USER ${USER_NAME}

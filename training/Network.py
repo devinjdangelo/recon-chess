@@ -82,6 +82,7 @@ class ReconChessNet(Model):
 			x = self.lstm_stateful(x)
 		else:
 			mask = tf.reshape(mask,(batch_size,time_steps))
+			mask = tf.cast(mask,tf.bool)
 			x = self.lstm(x,mask=mask)
 
 		return x
