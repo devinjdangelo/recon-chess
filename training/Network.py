@@ -24,7 +24,10 @@ def gpu_usage():
 
 class ReconChessNet(Model):
 	#Implements Tensorflow NN for ReconBot
-	def __init__(self,name,max_batch_size,learning_rate):
+	def __init__(self,name,max_batch_size,learning_rate,use_cpu):
+
+		if use_cpu:
+			tf.config.set_visible_devices([], 'GPU')
 
 		self.entropy_weight = .08
 
@@ -35,10 +38,17 @@ class ReconChessNet(Model):
 		#self.mask = Masking(mask_value=0)
 		#self.convshape = Reshape((13,8,8))
 		#channels first should work on GPU but not cpu for testing
-		self.conv1 = Conv2D(16, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv1')
-		self.conv2 = Conv2D(32, 2, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv2')
-		self.conv3 = Conv2D(64, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv3')
-		self.conv4 = Conv2D(128, 1, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv4')
+		if not use_cpu:
+			self.conv1 = Conv2D(16, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv1')
+			self.conv2 = Conv2D(32, 2, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv2')
+			self.conv3 = Conv2D(64, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv3')
+			self.conv4 = Conv2D(128, 1, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv4')
+		else:
+			self.conv1 = Conv2D(16, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last',name='conv1')
+			self.conv2 = Conv2D(32, 2, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last',name='conv2')
+			self.conv3 = Conv2D(64, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last',name='conv3')
+			self.conv4 = Conv2D(128, 1, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_last',name='conv4')
+
 		self.flatten = Flatten(data_format='channels_first',name='flatten')
 		#stateful is conveinient for sequential action sampling,
 		#but problematic because it requires fixed batch size
