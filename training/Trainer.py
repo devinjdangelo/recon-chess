@@ -45,7 +45,7 @@ class ReconTrainer:
         self.wins = SharedArray((workers,),dtype=np.float32)
         self.losses = SharedArray((workers,),dtype=np.float32)
         self.ties = SharedArray((workers,),dtype=np.float32)
-        self.train_color = SharedArray((1,),dtype=np.int32)
+        #self.train_color = SharedArray((1,),dtype=np.int32)
 
         self.score_smoothing = score_smoothing
 
@@ -92,15 +92,17 @@ class ReconTrainer:
 
 
     def synchronize_weights(self):
-        if rank==0:
-                weights = self.train_player.get_weights()
+        players = [self.train_player] + self.opponents
+        for player in players:
+            if rank==0:
+                weights = player.net.get_weights()
             else:
                 weights = None #need to sync from master
 
-        weights = comm.bcast(weights,root=0)
+            weights = comm.bcast(weights,root=0)
 
-        if rank!=0:
-            self.train_player.set_weights(weights)
+            if rank!=0:
+                player.net.set_weights(weights)
             
 
 
@@ -111,12 +113,13 @@ class ReconTrainer:
         #black -> black player agent
         game = LocalGame()
 
+        opponent_number = random.choice(list(range(len(self.opponents))))
         if train_as_white:
             white = self.train_player.agent
-            black = random.choice(self.opponents).agent
+            black = self.opponents[opponent_number].agent
         else:
             black = self.train_player.agent
-            white = random.choice(self.opponents).agent
+            white = self.opponents[opponent_number].agent
 
         white_name = white.__class__.__name__
         black_name = black.__class__.__name__
@@ -173,19 +176,19 @@ class ReconTrainer:
         if winner is not None:
             #if white wins, need to switch 
             if (winner and train_as_white) or (not winner and not train_as_white):
-                rewards[rank,total_turns-1] += 1
-                self.score[rank,self.next_opponet_to_play[0]] = 1*(1-self.score_smoothing)+ self.score[rank,self.next_opponet_to_play[0]] * self.score_smoothing
+                rewards[turn-1] += 1
+                self.score[rank,opponent_number] = 1*(1-self.score_smoothing)+ self.score[rank,opponent_number] * self.score_smoothing
                 self.wins[rank] += 1
             elif (not winner and train_as_white) or (winner and not train_as_white):
-                rewards[rank,total_turns-1] -= 1
-                self.score[rank,self.next_opponet_to_play[0]] = -1*(1-self.score_smoothing)+ self.score[rank,self.next_opponet_to_play[0]] * self.score_smoothing
+                rewards[turn-1] -= 1
+                self.score[rank,opponent_number] = -1*(1-self.score_smoothing)+ self.score[rank,opponent_number] * self.score_smoothing
                 self.losses[rank] += 1
         else:
-            self.score[rank,self.next_opponet_to_play[0]] = self.score[rank,self.next_opponet_to_play[0]] * self.score_smoothing
+            self.score[rank,opponent_number] = self.score[rank,opponent_number] * self.score_smoothing
             self.ties[rank] += 1
 
         if turn//2==maximum_moves and winner is None:
-            terminal_state_value = self.train_agent.get_terminal_v()[0]
+            terminal_state_value = self.train_player.agent.get_terminal_v()[0]
             should_bootstrap = True
         else:
             terminal_state_value = None
@@ -197,54 +200,76 @@ class ReconTrainer:
         newsize = [turn,turn//2,turn,turn]
         memory = [np.resize(mem,(newsize[i],)+mem.shape[1:]) for i,mem in enumerate(memory)]
 
-        gae = self.GAE(memory[3][i],memory[2][i][:,-1],bootstrap=should_bootstrap,terminal_state_value=terminal_state_value)
+        gae = self.GAE(memory[3],memory[2][:,-1],bootstrap=should_bootstrap,terminal_state_value=terminal_state_value)
         memory.append(gae)
 
-        return memory,game_history
+        return memory,turn,game_history
 
     def collect_exp(self,n_moves,max_turns_per_game,loop):
         game_memory = [[],[],[],[],[]]
         moves_played = 0
+        game_num = 0
         while moves_played<n_moves:
+            game_num += 1
+            if moves_played + max_turns_per_game > n_moves:
+                max_turns_per_game = n_moves - moves_played 
             train_as_white = random.choice([True,False])
-            outmem,game_history = self.play_game(train_as_white,max_turns_per_game)
-            game_memory = [game_memory[i]+outmem[i] for i in range(len(game_memory))]
+            outmem,moves,game_history = self.play_game(train_as_white,max_turns_per_game)
+            game_memory = [game_memory[i]+[outmem[i]] for i in range(len(game_memory))]
+            moves_played += moves
+
             if rank==1:
-                ngames = len(outmem[0])
-                tot_wins,tot_losses,tot_ties = np.sum(self.wins),np.sum(self.losses),np.sum(self.ties)
-                self.win_avg = self.win_avg*0.8 + (1-0.8)*tot_wins/ngames
-                self.loss_avg = self.loss_avg*0.8 + (1-0.8)*tot_losses/ngames
-                self.tie_avg = self.tie_avg*0.8 + (1-0.8)*tot_ties/ngames
+                if loop%10==0 and game_num<=10:
+                    colorstr = 'white' if train_as_white else 'black'
+                    game_history.save('./replays/loop'+str(loop)+'step'+str(total_turns)+colorstr+'.json')
 
-                print('loop: ', loop,' Games Played: ',ngames,' Wins: ',tot_wins, ' losses: ',tot_losses,
-                    ' ties: ',tot_ties,' score: ',np.mean(self.score),' Win pct: ','{0:.2f}'.format(self.win_avg),' loss pct: ','{0:.2f}'.format(self.loss_avg))
+        if rank==1:
+            ngames = len(outmem[0])
+            tot_wins,tot_losses,tot_ties = np.sum(self.wins),np.sum(self.losses),np.sum(self.ties)
+            self.win_avg = self.win_avg*0.8 + (1-0.8)*tot_wins/ngames
+            self.loss_avg = self.loss_avg*0.8 + (1-0.8)*tot_losses/ngames
+            self.tie_avg = self.tie_avg*0.8 + (1-0.8)*tot_ties/ngames
 
-                with open(self.game_stat_path,'a',newline='', encoding='utf-8') as output:
-                    wr = csv.writer(output)
-                    wr.writerow([loop,game,ngames,tot_wins,tot_losses,tot_ties,np.mean(self.score),self.win_avg,self.loss_avg,self.tie_avg,np.amin(np.mean(self.score,0)),np.amax(np.mean(self.score,0))])
+            print('loop: ', loop,' Games Played: ',ngames,' Wins: ',tot_wins, ' losses: ',tot_losses,
+                ' ties: ',tot_ties,' score: ',np.mean(self.score),' Win pct: ','{0:.2f}'.format(self.win_avg),' loss pct: ','{0:.2f}'.format(self.loss_avg))
 
-                self.wins[:] = [0]*workers
-                self.losses[:] = [0]*workers
-                self.ties[:] = [0]*workers
+            with open(self.game_stat_path,'a',newline='', encoding='utf-8') as output:
+                wr = csv.writer(output)
+                wr.writerow([loop,game,ngames,tot_wins,tot_losses,tot_ties,np.mean(self.score),self.win_avg,self.loss_avg,self.tie_avg,np.amin(np.mean(self.score,0)),np.amax(np.mean(self.score,0))])
+
+            self.wins[:] = [0]*workers
+            self.losses[:] = [0]*workers
+            self.ties[:] = [0]*workers
+
+
 
                 
 
         return game_memory
 
-    def train(self,n_rounds,n_moves,epochs,equalize_weights_on_score,save_every_n,max_turns_per_game):
+    def train(self,n_moves,epochs,equalize_weights_on_score,save_every_n,max_turns_per_game):
         loop = 1
         total_steps_gathered = 0
         start_time = time.time()
-        if rank==0:
+        if rank==1:
             self.win_avg = 0.45
             self.loss_avg = 0.45
             self.tie_avg = 0.1
         while True:
             if rank != 0:
-                mem = self.collect_exp(n_rounds,n_moves,max_turns_per_game,loop)
-                #how do I gather this???
-            if rank==0:
+                mem = self.collect_exp(n_moves,max_turns_per_game,loop)
+                mem_gathered = comm.gather(mem,root=0)
+            elif rank==0:
                 mem = None
+                mem_gathered = comm.gather(mem,root=0)
+                mem = [[],[],[],[],[]]
+                for g in mem_gathered:
+                    if g is None:
+                        continue
+                    else:
+                        for i,data in enumerate(g):
+                            mem[i] += data
+
                 samples_available = list(range(len(mem[0])))
                 total_steps_gathered += sum([len(m) for m in mem[0]])
                 batch_size = len(samples_available)//2
@@ -288,7 +313,7 @@ class ReconTrainer:
                 msteps_per_day = steps_per_second*60*60*24/1e6
                 print('loop: ',loop,' steps per second: ','{0:.2f}'.format(steps_per_second),' million steps per day: ','{0:.2f}'.format(msteps_per_day))
             loop += 1
-            comm.Barrier()
+            self.synchronize_weights()
 
     def send_batch(self,batch):
         inputs = batch[0]

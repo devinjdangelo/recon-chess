@@ -3,35 +3,20 @@ import numpy as np
 from reconchess import *
 
 from .Network import ReconChessNet
-from .Sharedmem import SharedArray
-
-from mpi4py import MPI 
-
-comm = MPI.COMM_WORLD 
-rank = comm.rank
-workers  = comm.Get_size()
 
 PieceDict = {'P':0,'N':1,'B':2,'R':3,'Q':4,'K':5,
         'p':6,'n':7,'b':8,'r':9,'q':10,'k':11}
 
 class ReconBot(Player):
     def __init__(self,net=None,verbose=True,name=None):
-        self.name = name
         self.board = None
         self.color = None
-        if rank==0:
-            if net is None:
-                self.net = ReconChessNet()
-            else:
-                self.net = net
+        if net is None:
+            self.net = ReconChessNet()
         else:
-            self.net = None
+            self.net = net
     
         self.verbose = verbose
-        self.obs = SharedArray((workers,13,8,8),dtype=np.int32)
-        self.action_memory = SharedArray((workers,3),dtype=np.float32)
-        self.mask = SharedArray((workers,4096),np.int32)
-
 
     @staticmethod
     def _fen_to_obs(fen):
@@ -52,15 +37,15 @@ class ReconBot(Player):
                 return obs
             
     def _get_obs(self):
-        self.obs[rank,:,:,:] = self._fen_to_obs(self.board.fen())
+        self.obs = self._fen_to_obs(self.board.fen())
 
     @staticmethod
     def _square_to_col_row(square: Square):
         return square//8,square%8
 
     def _piece_idx_at_col_row(self,col,row):
-        maxidx = np.argmax(self.obs[rank,:12,col,row])
-        if self.obs[rank,maxidx,col,row]>0:
+        maxidx = np.argmax(self.obs[:12,col,row])
+        if self.obs[maxidx,col,row]>0:
             return maxidx
         else:
             return None
@@ -75,7 +60,7 @@ class ReconBot(Player):
                 idx = self._piece_idx_at_col_row(col,row)
                 if idx is not None:
                     key = next(key for key, value in PieceDict.items() if value == idx)
-                elif self.obs[0,12,col,row]==1:
+                elif self.obs[12,col,row]==1:
                     key = 'X'
                 else:
                     key = '.'
@@ -119,32 +104,29 @@ class ReconBot(Player):
             deletes = [self.board.remove_piece_at(sq) for sq in legal_moves if self._not_my_color(sq)] 
             legal_moves = [self._square_to_col_row(sq) for sq in legal_moves]
             legal_col,legal_row = list(zip(*legal_moves))
+            #print(legal_col,legal_row)
             if self.color:
-                self.obs[rank,6:12,legal_col,legal_row] = 0
+                #self.obs[6:12,:,:] = 0
+                self.obs[6:12,legal_col,legal_row] = 0
             else:
-                self.obs[:rank,legal_col,legal_row] = 0
+                #self.obs[:6,:,:] = 0
+                self.obs[:6,legal_col,legal_row] = 0
 
-        self.obs[rank,12,:,:] = 0
+        self.obs[12,:,:] = 0
         if captured_my_piece:
             col,row = self._square_to_col_row(capture_square)
-            self.obs[rank,:12,col,row] = 0
-            self.obs[rank,12,col,row] = 1
+            self.obs[:12,col,row] = 0
+            self.obs[12,col,row] = 1
             self.board.remove_piece_at(capture_square)
 
         self._print_obs('opponent move')
 
     def choose_sense(self, sense_actions: List[Square], move_actions: List[chess.Move], seconds_left: float) -> \
             Optional[Square]:
-        if rank==0:
-            action,prob,value = self.net.sample_pir(self.obs)
-            self.action_memory[:,0] = action
-            self.action_memory[:,1] = prob
-            self.action_memory[:,2] = value
-        comm.Barrier()
-        action = self.action_memory[rank,0]
+        action,prob,value = self.net.sample_pir([self.obs])
+        action = action[0]
         action_to_send = action + 9 + 2*(action//6)
-        #print('rank: ',rank,' sense action: ',action,action_to_send,' agent: ',self.name,' color: ',self.color)
-        
+        self.action_memory = action,prob[0],value[0]
         return int(action_to_send)
 
     def handle_sense_result(self, sense_result: List[Tuple[Square, Optional[chess.Piece]]]):
@@ -154,33 +136,25 @@ class ReconBot(Player):
             col,row = self._square_to_col_row(square)
             if piece is not None:
                 piece_idx = PieceDict[piece.symbol()]
-                self.obs[rank,piece_idx,col,row] = 1
+                self.obs[piece_idx,col,row] = 1
             else:
-                self.obs[rank,:,col,row] = 0
+                self.obs[:,col,row] = 0
 
         self._print_obs('handle sense')
 
     def choose_move(self, move_actions: List[chess.Move], seconds_left: float) -> Optional[chess.Move]:
-        mask = np.zeros((1,8,8,8,8))
+        self.mask = np.zeros((1,8,8,8,8))
         col_row_moves = []
         for move in move_actions:
             col_f,row_f = self._square_to_col_row(move.from_square)
             col_t,row_t = self._square_to_col_row(move.to_square)
             col_row_moves.append((col_f,row_f,col_t,row_t))
-            mask[:,col_f,row_f,col_t,row_t] = 1
-        mask = np.reshape(mask,(1,8*8*8*8))
-        self.mask[rank,:] = mask
-        comm.Barrier()
-        if rank==0:
-            action,prob,value = self.net.sample_pim(self.obs,self.mask)
-            self.action_memory[:,0] = action
-            self.action_memory[:,1] = prob
-            self.action_memory[:,2] = value
-        comm.Barrier()
-        action = self.action_memory[rank,0]
-        action_unravel = np.unravel_index(int(action),(8,8,8,8))
-        #print('rank: ',rank,' move action: ',action,action_unravel,' agent: ',self.name,' color: ',self.color)
-        action_idx = col_row_moves.index(action_unravel)
+            self.mask[:,col_f,row_f,col_t,row_t] = 1
+        self.mask = np.reshape(self.mask,(1,8*8*8*8))
+        action,prob,value = self.net.sample_pim([self.obs],self.mask)
+        self.action_memory = action[0],prob[0],value[0]
+        action = np.unravel_index(action[0],(8,8,8,8))
+        action_idx = col_row_moves.index(action)
         return move_actions[action_idx]
 
     def handle_move_result(self, requested_move: Optional[chess.Move], taken_move: Optional[chess.Move],
@@ -191,9 +165,9 @@ class ReconBot(Player):
             #update observation, zero old location and set new location to 1
             col,row = self._square_to_col_row(taken_move.from_square)
             piece_idx = self._piece_idx_at_col_row(col,row)
-            self.obs[rank,piece_idx,col,row] = 0
+            self.obs[piece_idx,col,row] = 0
             col,row = self._square_to_col_row(taken_move.to_square)
-            self.obs[rank,piece_idx,col,row] = 1
+            self.obs[piece_idx,col,row] = 1
         else:
             #pass turn back to other player
             self.board.push(chess.Move.null())
@@ -203,13 +177,10 @@ class ReconBot(Player):
     def handle_game_end(self, winner_color: Optional[Color], win_reason: Optional[WinReason],
                         game_history: GameHistory):
 
-        if rank==0:
-            self.net.lstm_stateful.reset_states()
-        else:
-            return
+        self.net.lstm_stateful.reset_states()
 
     def get_terminal_v(self):
-        return self.net.sample_final_v(self.obs)
+        return self.net.sample_final_v([self.obs])
 
 
     def init_net(self):
@@ -229,6 +200,6 @@ class ReconBot(Player):
 
         loss = self.net.loss([[obs,obs],[obs,obs]],mask,lg_prob_old,a_taken,GAE,old_v_pred,returns,clip)
 
-        out = self.net.sample_pir([obs]*workers)
+        out = self.net.sample_pir([obs])
 
         self.net.lstm_stateful.reset_states()

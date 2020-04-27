@@ -26,7 +26,9 @@ class ReconChessNet(Model):
 	#Implements Tensorflow NN for ReconBot
 	def __init__(self,name,max_batch_size,learning_rate,use_cpu):
 
-		if use_cpu:
+		self.use_cpu = use_cpu
+
+		if self.use_cpu:
 			tf.config.set_visible_devices([], 'GPU')
 
 		self.entropy_weight = .08
@@ -38,7 +40,8 @@ class ReconChessNet(Model):
 		#self.mask = Masking(mask_value=0)
 		#self.convshape = Reshape((13,8,8))
 		#channels first should work on GPU but not cpu for testing
-		if not use_cpu:
+		#if not use_cpu:
+		if not self.use_cpu:
 			self.conv1 = Conv2D(16, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv1')
 			self.conv2 = Conv2D(32, 2, strides=(1,1), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv2')
 			self.conv3 = Conv2D(64, 2, strides=(2,2), activation=tf.nn.leaky_relu, kernel_initializer=TruncatedNormal,data_format='channels_first',name='conv3')
@@ -80,7 +83,8 @@ class ReconChessNet(Model):
 		time_steps = x.shape[1]
 		x = tf.reshape(x,shape=(batch_size*time_steps,13,8,8))
 		#convert to channels last for cpu
-		#x = tf.transpose(x,[0,2,3,1])
+		if self.use_cpu:
+			x = tf.transpose(x,[0,2,3,1])
 		x = tf.cast(x,tf.float32) 
 		x = self.conv1(x)
 		x = self.conv2(x)
