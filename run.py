@@ -26,7 +26,7 @@ trainer = ReconTrainer(model_path,load_model,load_opponent_model,train_initial_m
 	opponent_initial_model_path,score,score_smoothing,game_stat_path,net_stat_path,max_batch_size,
 	learning_rate,clip,n_opponents)
 
-n_moves = 128
+n_moves = 5120
 max_turns_per_game = 70
 
 
