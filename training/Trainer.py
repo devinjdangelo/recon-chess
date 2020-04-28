@@ -1,3 +1,4 @@
+
 import numpy as np
 from reconchess import *
 import random
@@ -9,6 +10,9 @@ from mpi4py import MPI
 comm = MPI.COMM_WORLD 
 rank = comm.rank
 workers  = comm.Get_size()
+
+color = 0 if rank==0 else 1
+cpu_comm = comm.Split(color,0)
 
 from .Sharedmem import SharedArray
 from .Network import ReconChessNet
@@ -37,23 +41,19 @@ class ReconTrainer:
         self.clip = clip
         self.n_opponents = n_opponents
 
-
-        self.bootstrap = SharedArray((workers,),dtype=np.int32)
-        self.splits = SharedArray((workers,),dtype=np.int32)
-
-        self.score = SharedArray((workers,self.n_opponents),dtype=np.float32)
-        self.wins = SharedArray((workers,),dtype=np.float32)
-        self.losses = SharedArray((workers,),dtype=np.float32)
-        self.ties = SharedArray((workers,),dtype=np.float32)
+        self.score = SharedArray((workers-1,self.n_opponents),dtype=np.float32)
+        self.wins = SharedArray((workers-1,),dtype=np.float32)
+        self.losses = SharedArray((workers-1,),dtype=np.float32)
+        self.ties = SharedArray((workers-1,),dtype=np.float32)
         #self.train_color = SharedArray((1,),dtype=np.int32)
 
         self.score_smoothing = score_smoothing
 
         if rank==0:
             self.score[:,:] = score
-            self.wins[:] = [0]*workers
-            self.losses[:] = [0]*workers
-            self.ties[:] = [0]*workers
+            self.wins[:] = [0]*(workers-1)
+            self.losses[:] = [0]*(workers-1)
+            self.ties[:] = [0]*(workers-1)
 
             with open(self.game_stat_path,'w',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
@@ -177,15 +177,15 @@ class ReconTrainer:
             #if white wins, need to switch 
             if (winner and train_as_white) or (not winner and not train_as_white):
                 rewards[turn-1] += 1
-                self.score[rank,opponent_number] = 1*(1-self.score_smoothing)+ self.score[rank,opponent_number] * self.score_smoothing
-                self.wins[rank] += 1
+                self.score[rank-1,opponent_number] = 1*(1-self.score_smoothing)+ self.score[rank-1,opponent_number] * self.score_smoothing
+                self.wins[rank-1] += 1
             elif (not winner and train_as_white) or (winner and not train_as_white):
                 rewards[turn-1] -= 1
-                self.score[rank,opponent_number] = -1*(1-self.score_smoothing)+ self.score[rank,opponent_number] * self.score_smoothing
-                self.losses[rank] += 1
+                self.score[rank-1,opponent_number] = -1*(1-self.score_smoothing)+ self.score[rank-1,opponent_number] * self.score_smoothing
+                self.losses[rank-1] += 1
         else:
-            self.score[rank,opponent_number] = self.score[rank,opponent_number] * self.score_smoothing
-            self.ties[rank] += 1
+            self.score[rank-1,opponent_number] = self.score[rank-1,opponent_number] * self.score_smoothing
+            self.ties[rank-1] += 1
 
         if turn//2==maximum_moves and winner is None:
             terminal_state_value = self.train_player.agent.get_terminal_v()[0]
@@ -211,21 +211,22 @@ class ReconTrainer:
         game_num = 0
         while moves_played<n_moves:
             game_num += 1
-            if moves_played + max_turns_per_game > n_moves:
-                max_turns_per_game = n_moves - moves_played 
+            if moves_played + max_turns_per_game*2 > n_moves:
+                max_turns_per_game = (n_moves - moves_played)//2
             train_as_white = random.choice([True,False])
             outmem,moves,game_history = self.play_game(train_as_white,max_turns_per_game)
             game_memory = [game_memory[i]+[outmem[i]] for i in range(len(game_memory))]
             moves_played += moves
-
+            #print(f'Rank {rank} playing game {game_num}, moves {moves_played} out of {n_moves}')
             if rank==1:
                 if loop%10==0 and game_num<=10:
                     colorstr = 'white' if train_as_white else 'black'
-                    game_history.save('./replays/loop'+str(loop)+'step'+str(total_turns)+colorstr+'.json')
+                    game_history.save('./replays/loop'+str(loop)+'step'+str(game_num)+colorstr+'.json')
 
+        cpu_comm.barrier()
         if rank==1:
-            ngames = len(outmem[0])
             tot_wins,tot_losses,tot_ties = np.sum(self.wins),np.sum(self.losses),np.sum(self.ties)
+            ngames = tot_wins + tot_losses + tot_ties
             self.win_avg = self.win_avg*0.8 + (1-0.8)*tot_wins/ngames
             self.loss_avg = self.loss_avg*0.8 + (1-0.8)*tot_losses/ngames
             self.tie_avg = self.tie_avg*0.8 + (1-0.8)*tot_ties/ngames
@@ -237,9 +238,9 @@ class ReconTrainer:
                 wr = csv.writer(output)
                 wr.writerow([loop,game,ngames,tot_wins,tot_losses,tot_ties,np.mean(self.score),self.win_avg,self.loss_avg,self.tie_avg,np.amin(np.mean(self.score,0)),np.amax(np.mean(self.score,0))])
 
-            self.wins[:] = [0]*workers
-            self.losses[:] = [0]*workers
-            self.ties[:] = [0]*workers
+            self.wins[:] = [0]*(workers-1)
+            self.losses[:] = [0]*(workers-1)
+            self.ties[:] = [0]*(workers-1)
 
 
 
@@ -261,6 +262,7 @@ class ReconTrainer:
                 mem_gathered = comm.gather(mem,root=0)
             elif rank==0:
                 mem = None
+                print('Rank 0 waiting for data...')
                 mem_gathered = comm.gather(mem,root=0)
                 mem = [[],[],[],[],[]]
                 for g in mem_gathered:
@@ -269,7 +271,7 @@ class ReconTrainer:
                     else:
                         for i,data in enumerate(g):
                             mem[i] += data
-
+                print(f'Rank 0 got {len(mem[0])} episodes')
                 samples_available = list(range(len(mem[0])))
                 total_steps_gathered += sum([len(m) for m in mem[0]])
                 batch_size = len(samples_available)//2
@@ -360,3 +362,4 @@ class ReconTrainer:
 
 
             
+
