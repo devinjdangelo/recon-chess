@@ -12,7 +12,7 @@ sudo docker run -it --runtime=nvidia --privileged --shm-size=30g -v "$PWD":"$PWD
 rbc_cpu \
 bash
 
-sudo rm /usr/local/cuda/lib64/stubs/libcuda.so.1
+# sudo rm /usr/local/cuda/lib64/stubs/libcuda.so.1
 
-mpiexec -n 9 --allow-run-as-root --oversubscribe \
-python3 -u "/home/ddangelo/Dropbox/Deep Learning/recon-chess/run.py"
+# mpiexec -n 9 --allow-run-as-root --oversubscribe \
+# python3 -u "/home/ddangelo/Dropbox/Deep Learning/recon-chess/run.py"

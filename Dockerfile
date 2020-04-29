@@ -118,3 +118,9 @@ WORKDIR ${HOME_DIR}
 
 RUN sudo apt-get install -y ssh-client
 RUN sudo rm /usr/local/cuda/lib64/stubs/libcuda.so.1
+
+#RUN export STOCKFISH_EXECUTABLE="/home/ddangelo/Dropbox/Deep Learning/recon-chess/stockfish-11-linux/Linux/stockfish_20011801_x64"
+#RUN export PYTHONPATH="/home/ddangelo/Dropbox/Deep Learning/recon-chess/reconchess-strangefish"
+#RUN pip3 install tqdm dataclasses
+
+

@@ -18,6 +18,9 @@ from .Sharedmem import SharedArray
 from .Network import ReconChessNet
 from .ReconBot import ReconBot
 
+#from strangefish import StrangeFish
+#from strangefish.strategies import multiprocessing_strategies
+
 class ReconPlayer:
     def __init__(self,name,max_batch_size,learning_rate,use_cpu):
         
@@ -48,6 +51,9 @@ class ReconTrainer:
         #self.train_color = SharedArray((1,),dtype=np.int32)
 
         self.score_smoothing = score_smoothing
+
+        #if rank!=0:
+            #self.strangeFish = StrangeFish(*multiprocessing_strategies.create_strategy())
 
         if rank==0:
             self.score[:,:] = score
@@ -81,10 +87,10 @@ class ReconTrainer:
             self.train_player.net.load_weights(self.model_path+train_initial_model_path)
             self.train_player.sync_lstm_weights()
             if load_opponent_model and opponent_initial_model_path is not None:
-                print('loading opponents: ',opponent_initial_model_path+train_initial_model_path[-3:])
+                print('loading opponents: ',opponent_initial_model_path+train_initial_model_path.split('_')[-1])
                 #load specific models as opponents
                 for i in range(self.n_opponents):
-                    self.opponents[i].net.load_weights(self.model_path+opponent_initial_model_path+str(i)+train_initial_model_path[-3:])
+                    self.opponents[i].net.load_weights(self.model_path+opponent_initial_model_path+str(i)+train_initial_model_path.split('_')[-1])
                     self.opponents[i].sync_lstm_weights()  
         else:
             self.train_player.sync_lstm_weights()
@@ -111,15 +117,18 @@ class ReconTrainer:
         #adapted from reconchess.play.play_local_game() 
         #white -> white player agent
         #black -> black player agent
-        game = LocalGame()
+        game = LocalGame(seconds_per_player=60)
 
         opponent_number = random.choice(list(range(len(self.opponents))))
+        play_strangefish = False
+        if play_strangefish:
+            print(f'Rank {rank} is playing strangefish')
         if train_as_white:
             white = self.train_player.agent
-            black = self.opponents[opponent_number].agent
+            black = self.opponents[opponent_number].agent if not play_strangefish else self.strangeFish
         else:
             black = self.train_player.agent
-            white = self.opponents[opponent_number].agent
+            white = self.opponents[opponent_number].agent if not play_strangefish else self.strangeFish
 
         white_name = white.__class__.__name__
         black_name = black.__class__.__name__
@@ -311,7 +320,7 @@ class ReconTrainer:
                     for i in range(self.n_opponents):
                         self.opponents[i].net.save_weights(self.model_path+'opponent_loop_'+str(i)+str(loop))
 
-                steps_per_second = total_steps_gathered/(time.time()-start_time)
+                steps_per_second = total_steps_gathered*epochs/(time.time()-start_time)
                 msteps_per_day = steps_per_second*60*60*24/1e6
                 print('loop: ',loop,' steps per second: ','{0:.2f}'.format(steps_per_second),' million steps per day: ','{0:.2f}'.format(msteps_per_day))
             loop += 1
