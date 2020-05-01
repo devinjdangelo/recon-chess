@@ -77,6 +77,9 @@ class ReconTrainer:
         self.train_player = ReconPlayer('train',max_batch_size,learning_rate,use_cpu)
         self.opponents = [ReconPlayer('opponent '+str(i),max_batch_size,learning_rate,use_cpu) for i in range(self.n_opponents)]
         self.next_to_sync_with_train = 0
+        self.strongest_opponent = SharedArray((1,))
+        if rank==0:
+            self.strongest_opponent[0] = 0
 
         self.train_player.agent.init_net()
         for opponent in self.opponents:
@@ -119,7 +122,11 @@ class ReconTrainer:
         #black -> black player agent
         game = LocalGame(seconds_per_player=60)
 
-        opponent_number = random.choice(list(range(len(self.opponents))))
+        play_strongest = random.choice([True,False])
+
+        opponent_number = int(self.strongest_opponent[0]) if play_strongest else \
+                            random.choice(list(range(len(self.opponents))))
+
         play_strangefish = False
         if play_strangefish:
             print(f'Rank {rank} is playing strangefish')
@@ -302,13 +309,14 @@ class ReconTrainer:
                         wr = csv.writer(output)
                         wr.writerows([(i,loss,pg_loss,entropy,vf_loss,g_n)])
 
-                self.train_player.sync_lstm_weights
+                self.train_player.sync_lstm_weights()
 
                 if np.amin(np.mean(self.score,0)) >= equalize_weights_on_score:
                     #once desired performance is achieved, equalized opponent/train weights 
                     #and reset performance metrics
                     print('equalizing weights')
                     self.opponents[self.next_to_sync_with_train].net.set_weights(self.train_player.net.get_weights())
+                    self.strongest_opponent[0] = self.next_to_sync_with_train
                     self.next_to_sync_with_train = 0 if self.next_to_sync_with_train==self.n_opponents-1 else self.next_to_sync_with_train+1
                     self.score[:,:] = 0
                     self.win_avg = 0.45

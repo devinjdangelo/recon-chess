@@ -8,14 +8,14 @@ workers  = comm.Get_size()
 model_path = './models/'
 load_model = True
 load_opponent_model = load_model
-train_initial_model_path = 'train_loop_20'
+train_initial_model_path = 'train_loop_80'
 opponent_initial_model_path = 'opponent_loop_'
 
 score = 0.00
 score_smoothing = 0.995
 
-game_stat_path = 'Performance Stats 1.2.csv'
-net_stat_path = 'Network Stats 1.2.csv'
+game_stat_path = 'Performance Stats 1.5.csv'
+net_stat_path = 'Network Stats 1.5.csv'
 max_batch_size = 80
 learning_rate = 1e-2
 clip = 0.2
@@ -32,7 +32,7 @@ max_turns_per_game = 70
 
 epochs = 4
 equalize_weights_on_score = 0.05 #0.12 #approx 55% win rate
-save_every_n = 20
+save_every_n = 1
 
 
 trainer.train(n_moves,epochs,equalize_weights_on_score,save_every_n,max_turns_per_game)
