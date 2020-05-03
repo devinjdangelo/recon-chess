@@ -35,7 +35,7 @@ class ReconTrainer:
     # implements training procedures for ReconBot
     # by interfacing with reconchess api
     def __init__(self,model_path,load_model,load_opponent_model,train_initial_model_path,opponent_initial_model_path,
-        score,score_smoothing,game_stat_path,net_stat_path,max_batch_size,learning_rate,clip,n_opponents):
+        score,score_smoothing,game_stat_path,net_stat_path,max_batch_size,learning_rate,clip,n_opponents,strongest):
 
         self.model_path = model_path
         self.game_stat_path = game_stat_path
@@ -63,7 +63,7 @@ class ReconTrainer:
 
             with open(self.game_stat_path,'w',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
-                    wr.writerows([('Loop','Round','ngames','Wins','Losses','Ties','Score Avg','Win Avg','Loss Avg','Tie Avg','scoremin','scoremax')])
+                    wr.writerows([('Loop','Round','ngames','Wins','Losses','Ties','Score Avg','Win Avg','Loss Avg','Tie Avg','scoremin','scoremax','strongest')])
 
             with open(self.net_stat_path,'w',newline='', encoding='utf-8') as output:
                     wr = csv.writer(output)
@@ -76,10 +76,11 @@ class ReconTrainer:
         
         self.train_player = ReconPlayer('train',max_batch_size,learning_rate,use_cpu)
         self.opponents = [ReconPlayer('opponent '+str(i),max_batch_size,learning_rate,use_cpu) for i in range(self.n_opponents)]
-        self.next_to_sync_with_train = 0
         self.strongest_opponent = SharedArray((1,))
         if rank==0:
-            self.strongest_opponent[0] = 0
+            self.strongest_opponent[0] = strongest
+
+        self.next_to_sync_with_train = 0 if int(self.strongest_opponent)==self.n_opponents-1 else int(self.strongest_opponent[0]) + 1
 
         self.train_player.agent.init_net()
         for opponent in self.opponents:
@@ -219,7 +220,7 @@ class ReconTrainer:
         gae = self.GAE(memory[3],memory[2][:,-1],bootstrap=should_bootstrap,terminal_state_value=terminal_state_value)
         memory.append(gae)
 
-        return memory,turn,game_history
+        return memory,turn,game_history,opponent_number
 
     def collect_exp(self,n_moves,max_turns_per_game,loop):
         game_memory = [[],[],[],[],[]]
@@ -230,14 +231,14 @@ class ReconTrainer:
             if moves_played + max_turns_per_game*2 > n_moves:
                 max_turns_per_game = (n_moves - moves_played)//2
             train_as_white = random.choice([True,False])
-            outmem,moves,game_history = self.play_game(train_as_white,max_turns_per_game)
+            outmem,moves,game_history,op_num = self.play_game(train_as_white,max_turns_per_game)
             game_memory = [game_memory[i]+[outmem[i]] for i in range(len(game_memory))]
             moves_played += moves
             #print(f'Rank {rank} playing game {game_num}, moves {moves_played} out of {n_moves}')
             if rank==1:
-                if loop%10==0 and game_num<=10:
+                if loop%2==0 and game_num<=10:
                     colorstr = 'white' if train_as_white else 'black'
-                    game_history.save('./replays/loop'+str(loop)+'step'+str(game_num)+colorstr+'.json')
+                    game_history.save('./replays/loop'+str(loop)+'game'+str(game_num)+'opstr'+str(op_num)+'_'+str(self.strongest_opponent[0])+colorstr+'.json')
 
         cpu_comm.barrier()
         if rank==1:
@@ -252,7 +253,7 @@ class ReconTrainer:
 
             with open(self.game_stat_path,'a',newline='', encoding='utf-8') as output:
                 wr = csv.writer(output)
-                wr.writerow([loop,game,ngames,tot_wins,tot_losses,tot_ties,np.mean(self.score),self.win_avg,self.loss_avg,self.tie_avg,np.amin(np.mean(self.score,0)),np.amax(np.mean(self.score,0))])
+                wr.writerow([loop,game,ngames,tot_wins,tot_losses,tot_ties,np.mean(self.score),self.win_avg,self.loss_avg,self.tie_avg,np.amin(np.mean(self.score,0)),np.amax(np.mean(self.score,0)),self.strongest_opponent[0]])
 
             self.wins[:] = [0]*(workers-1)
             self.losses[:] = [0]*(workers-1)
